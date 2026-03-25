@@ -1,0 +1,5 @@
+{
+  "name": "Slide Strategy Game",
+  "description": "A 6x6 grid strategy game where pieces slide until they hit an edge or another piece. Win by getting 4 in a row.",
+  "requestFramePermissions": []
+}
