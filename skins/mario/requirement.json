@@ -1,0 +1,6 @@
+{
+  "unlockRequirement": "Play 10 matches with 1 min time control",
+  "checkUnlock": "user.games_1min >= 10",
+  "progress": "user.games_1min",
+  "progressMax": "10"
+}

@@ -1,0 +1,6 @@
+{
+  "unlockRequirement": "Reach 800 ELO",
+  "checkUnlock": "user.elo >= 800",
+  "progress": "user.elo",
+  "progressMax": "800"
+}

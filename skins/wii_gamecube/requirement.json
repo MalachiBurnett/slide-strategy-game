@@ -1,0 +1,6 @@
+{
+  "unlockRequirement": "Play 10 matches of Fog of War",
+  "checkUnlock": "user.games_fog_of_war >= 10",
+  "progress": "user.games_fog_of_war",
+  "progressMax": "10"
+}

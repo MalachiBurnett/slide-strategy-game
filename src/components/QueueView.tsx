@@ -51,13 +51,17 @@ export const QueueView: React.FC<QueueViewProps> = ({
                 {variants.map(v => (
                   <tr key={v} className="border-t border-[var(--primary)] border-opacity-10">
                     <td className="p-3 text-left font-bold text-sm">{formatVariant(v)}</td>
-                    {timeControls.map(tc => (
-                      <td key={tc} className="p-3 text-center">
-                        <div className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${variant === v && timeControl === tc ? 'bg-[var(--primary)] text-[var(--primaryText)]' : 'bg-[var(--primary)] bg-opacity-5 text-[var(--primary)]'}`}>
-                          {queueCounts[v]?.[tc] || 0}
-                        </div>
-                      </td>
-                    ))}
+                    {timeControls.map(tc => {
+                      const count = queueCounts?.[v]?.[tc] ?? 0;
+                      const isCurrent = variant === v && timeControl === tc;
+                      return (
+                        <td key={tc} className="p-3 text-center">
+                          <div className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${isCurrent ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg scale-110' : 'bg-[var(--primary)] bg-opacity-5 text-[var(--primary)]'}`}>
+                            {count}
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

@@ -1,0 +1,6 @@
+{
+  "unlockRequirement": "Play 10 matches of Random Setup",
+  "checkUnlock": "user.games_random_setup >= 10",
+  "progress": "user.games_random_setup",
+  "progressMax": "10"
+}

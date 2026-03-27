@@ -45,7 +45,10 @@ export function initializeDb() {
         { col: "games_played", type: "INTEGER DEFAULT 0" },
         { col: "games_random_setup", type: "INTEGER DEFAULT 0" },
         { col: "games_1min", type: "INTEGER DEFAULT 0" },
-        { col: "games_fog_of_war", type: "INTEGER DEFAULT 0" }
+        { col: "games_fog_of_war", type: "INTEGER DEFAULT 0" },
+        { col: "is_banned", type: "BOOLEAN DEFAULT 0" },
+        { col: "password_reset_token", type: "TEXT" },
+        { col: "new_email", type: "TEXT" }
       ];
 
       userMigrations.forEach(m => {
@@ -55,6 +58,10 @@ export function initializeDb() {
           }
         });
       });
+
+      db.run(`CREATE TABLE IF NOT EXISTS banned_names (
+        name TEXT PRIMARY KEY
+      )`, (err) => { if (err) reject(err); });
 
       db.run(`CREATE TABLE IF NOT EXISTS games (
         id TEXT PRIMARY KEY,
@@ -82,7 +89,9 @@ export function initializeDb() {
         { name: "increment", type: "INTEGER" },
         { name: "last_move_time", type: "INTEGER" },
         { name: "variant", type: "TEXT DEFAULT 'classic'" },
-        { name: "is_rated", type: "BOOLEAN DEFAULT 1" }
+        { name: "is_rated", type: "BOOLEAN DEFAULT 1" },
+        { name: "skin_w", type: "TEXT DEFAULT 'classic'" },
+        { name: "skin_b", type: "TEXT DEFAULT 'classic'" }
       ];
 
       gameMigrations.forEach(col => {
