@@ -50,7 +50,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             <input 
               type="text" 
               placeholder={authMode === 'login' ? "Username or Email" : "Username"} 
-              className="w-full pl-12 pr-4 py-4 bg-[var(--primary)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
+              className="w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
@@ -61,7 +61,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               <input 
                 type="email" 
                 placeholder="Email Address" 
-                className="w-full pl-12 pr-4 py-4 bg-[var(--primary)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
+                className="w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -72,13 +72,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
             <input 
               type="password" 
               placeholder="Password" 
-              className="w-full pl-12 pr-4 py-4 bg-[var(--primary)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
+              className="w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
           
-          <button type="submit" className="w-full py-4 bg-[var(--primary)] text-[var(--bg)] rounded-2xl font-black text-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-xl shadow-[var(--primary)]/20 mt-6">
+          <button type="submit" className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-xl shadow-[var(--primary)]/20 mt-6">
             {authMode === 'login' ? <LogIn className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
             {authMode === 'login' ? 'Login' : 'Register'}
           </button>

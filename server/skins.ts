@@ -14,15 +14,15 @@ export function getSkins() {
     const description = fs.existsSync(path.join(p, 'description.txt')) 
       ? fs.readFileSync(path.join(p, 'description.txt'), 'utf8') 
       : '';
-    const requirementCode = fs.existsSync(path.join(p, 'requirement.tsx'))
-      ? fs.readFileSync(path.join(p, 'requirement.tsx'), 'utf8')
-      : '';
+    const requirementJson = fs.existsSync(path.join(p, 'requirement.json'))
+      ? fs.readFileSync(path.join(p, 'requirement.json'), 'utf8')
+      : '{}';
       
     return {
       id: folder,
       name: folder.charAt(0).toUpperCase() + folder.slice(1),
       description,
-      requirementCode
+      requirementCode: requirementJson // Keep property name for frontend compatibility
     };
   }).filter(Boolean);
 }
@@ -43,9 +43,10 @@ export function updateUnlockedSkins(userId: number) {
           if (unlockedSkins.includes(skin.id)) return;
 
           try {
-            const code = skin.requirementCode.replace(/export const/g, 'const');
-            const getExports = new Function(`${code}; return { checkUnlock };`);
-            const { checkUnlock } = getExports();
+            const req = JSON.parse(skin.requirementCode);
+            if (!req.checkUnlock) return;
+
+            const checkUnlock = new Function('user', `return ${req.checkUnlock}`);
             const isUnlocked = checkUnlock({
               elo: user.elo,
               wins: user.wins || 0,
@@ -61,7 +62,7 @@ export function updateUnlockedSkins(userId: number) {
               updated = true;
             }
           } catch (e) {
-            // Skip
+            console.error(`Error checking skin ${skin.id}:`, e);
           }
         });
 

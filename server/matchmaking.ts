@@ -82,17 +82,23 @@ export function setupMatchmaking(io: Server) {
     });
 
     socket.on("join_queue", (data: {userId: number, elo: number, timeControl: string, variant: string}) => {
-      socketToUser.set(socket.id, data.userId);
-      const matchIdx = publicQueue.findIndex(q => q.timeControl === data.timeControl && q.variant === data.variant && Math.abs(q.elo - data.elo) <= 200);
-      
-      if (matchIdx !== -1) {
-        const opponent = publicQueue.splice(matchIdx, 1)[0];
-        broadcastQueueCounts();
-        startGame(io, data.userId, opponent.userId, opponent.socketId, socket.id, data.timeControl, data.variant || 'classic');
-      } else {
-        publicQueue.push({ userId: data.userId, elo: data.elo, socketId: socket.id, timeControl: data.timeControl, variant: data.variant || 'classic' });
-        broadcastQueueCounts();
-      }
+      db.get("SELECT is_banned FROM users WHERE id = ?", [data.userId], (err, user: any) => {
+        if (err || !user || user.is_banned) {
+          return socket.emit("error", "You are banned from playing public matches. Change your name to appeal.");
+        }
+        
+        socketToUser.set(socket.id, data.userId);
+        const matchIdx = publicQueue.findIndex(q => q.timeControl === data.timeControl && q.variant === data.variant && Math.abs(q.elo - data.elo) <= 200);
+        
+        if (matchIdx !== -1) {
+          const opponent = publicQueue.splice(matchIdx, 1)[0];
+          broadcastQueueCounts();
+          startGame(io, data.userId, opponent.userId, opponent.socketId, socket.id, data.timeControl, data.variant || 'classic');
+        } else {
+          publicQueue.push({ userId: data.userId, elo: data.elo, socketId: socket.id, timeControl: data.timeControl, variant: data.variant || 'classic' });
+          broadcastQueueCounts();
+        }
+      });
     });
 
     socket.on("leave_queue", (data: { userId: number }) => {
@@ -104,25 +110,28 @@ export function setupMatchmaking(io: Server) {
     });
 
     socket.on("create_private", (data: {userId: number, timeControl: string, variant: string}) => {
-      socketToUser.set(socket.id, data.userId);
-      const words = ["APPLE", "BREAD", "CHESS", "DREAM", "EAGLE", "FLAME", "GRAPE", "HOUSE", "IMAGE", "JOKER"];
-      const code = words[Math.floor(Math.random() * words.length)] + Math.floor(100 + Math.random() * 900);
-      const gameId = Math.random().toString(36).substring(7);
-      const variant = data.variant || 'classic';
-      const board = JSON.stringify(generateBoard(variant));
+      db.get("SELECT skin FROM users WHERE id = ?", [data.userId], (err, user: any) => {
+        socketToUser.set(socket.id, data.userId);
+        const words = ["APPLE", "BREAD", "CHESS", "DREAM", "EAGLE", "FLAME", "GRAPE", "HOUSE", "IMAGE", "JOKER"];
+        const code = words[Math.floor(Math.random() * words.length)] + Math.floor(100 + Math.random() * 900);
+        const gameId = Math.random().toString(36).substring(7);
+        const variant = data.variant || 'classic';
+        const board = JSON.stringify(generateBoard(variant));
+        const skinW = user?.skin || 'classic';
 
-      let initialTimer = 600;
-      let increment = 0;
-      if (data.timeControl === '1|0') initialTimer = 60;
-      else if (data.timeControl === '3|2') { initialTimer = 180; increment = 2; }
-      else if (data.timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
+        let initialTimer = 600;
+        let increment = 0;
+        if (data.timeControl === '1|0') initialTimer = 60;
+        else if (data.timeControl === '3|2') { initialTimer = 180; increment = 2; }
+        else if (data.timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
 
-      db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [gameId, board, 'W', data.userId, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variant]);
-      
-      privateGames.set(code, gameId);
-      socket.join(gameId);
-      socket.emit("private_created", { code, gameId, timerW: initialTimer, timerB: initialTimer, variant });
+        db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant, skin_w) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [gameId, board, 'W', data.userId, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variant, skinW]);
+        
+        privateGames.set(code, gameId);
+        socket.join(gameId);
+        socket.emit("private_created", { code, gameId, timerW: initialTimer, timerB: initialTimer, variant });
+      });
     });
 
     socket.on("join_private", (data: {userId: number, code: string}) => {
@@ -131,40 +140,43 @@ export function setupMatchmaking(io: Server) {
 
       db.get("SELECT * FROM games WHERE id = ?", [gameId], (err, game: any) => {
         if (!game || game.status !== 'waiting') return socket.emit("error", "Game full or not found");
-        db.run("UPDATE games SET player_b = ?, status = ?, last_move_time = ? WHERE id = ?", [data.userId, 'active', Date.now(), gameId]);
-        socketToUser.set(socket.id, data.userId);
-        socketToGame.set(socket.id, gameId);
-        socket.join(gameId);
-
-        activeTimers.set(gameId, {
-          timerW: game.timer_w,
-          timerB: game.timer_b,
-          turn: 'W',
-          increment: game.increment,
-          lastMoveTime: Date.now()
-        });
-
-        db.all("SELECT id, username, skin FROM users WHERE id IN (?, ?)", [game.player_w, data.userId], (err, users: any[]) => {
-          const userW = users.find(u => u.id === Number(game.player_w));
-          const userB = users.find(u => u.id === data.userId);
-          const skinW = userW?.skin || 'classic';
+        
+        db.get("SELECT skin, username FROM users WHERE id = ?", [data.userId], (err, userB: any) => {
           const skinB = userB?.skin || 'classic';
+          
+          db.run("UPDATE games SET player_b = ?, status = ?, last_move_time = ?, skin_b = ? WHERE id = ?", 
+            [data.userId, 'active', Date.now(), skinB, gameId]);
+          
+          socketToUser.set(socket.id, data.userId);
+          socketToGame.set(socket.id, gameId);
+          socket.join(gameId);
 
-          io.to(gameId).emit("match_found", { 
-            gameId, 
-            color: 'B',
-            opponentName: userW?.username, 
-            timerW: game.timer_w, 
+          activeTimers.set(gameId, {
+            timerW: game.timer_w,
             timerB: game.timer_b,
-            skinW, skinB, variant: game.variant
+            turn: 'W',
+            increment: game.increment,
+            lastMoveTime: Date.now()
           });
-          // To joiner
-          socket.emit("match_found", { 
-            gameId, color: 'B', opponentName: userW?.username, timerW: game.timer_w, timerB: game.timer_b, skinW, skinB, variant: game.variant 
-          });
-          // To creator
-          socket.to(gameId).emit("match_found", { 
-            gameId, color: 'W', opponentName: userB?.username, timerW: game.timer_w, timerB: game.timer_b, skinW, skinB, variant: game.variant 
+
+          db.get("SELECT username, skin FROM users WHERE id = ?", [game.player_w], (err, userW: any) => {
+            const skinW = userW?.skin || 'classic';
+
+            // To joiner: set color to B
+            socket.emit("match_found", { 
+              gameId, color: 'B', opponentName: userW?.username, timerW: game.timer_w, timerB: game.timer_b, skinW, skinB, variant: game.variant, board: JSON.parse(game.board)
+            });
+            // To creator: set color to W (creator is already in room)
+            socket.to(gameId).emit("join_private_success", { 
+              gameId, 
+              opponentName: userB?.username, 
+              skinW, 
+              skinB, 
+              variant: game.variant, 
+              board: JSON.parse(game.board),
+              timerW: game.timer_w,
+              timerB: game.timer_b
+            });
           });
         });
       });
@@ -214,14 +226,21 @@ export function setupMatchmaking(io: Server) {
           timerData.turn = nextTurn;
           timerData.lastMoveTime = now;
 
-          db.run("UPDATE games SET board = ?, turn = ?, status = ?, winner = ?, timer_w = ?, timer_b = ?, last_move_time = ? WHERE id = ?",
-            [JSON.stringify(board), nextTurn, winner ? 'finished' : 'active', winner, timerData.timerW, timerData.timerB, now, data.gameId]);
+          db.run("UPDATE games SET board = ?, turn = ?, timer_w = ?, timer_b = ?, last_move_time = ? WHERE id = ?",
+            [JSON.stringify(board), nextTurn, timerData.timerW, timerData.timerB, now, data.gameId]);
 
           if (winner) {
             handleGameEnd(io, data.gameId, winner, 'win', null, board, winResult.line, timerData);
           } else {
             io.to(data.gameId).emit("game_update", { 
-              board, turn: nextTurn, status: 'active', timerW: timerData.timerW, timerB: timerData.timerB, variant: game.variant 
+              board, 
+              turn: nextTurn, 
+              status: 'active', 
+              timerW: timerData.timerW, 
+              timerB: timerData.timerB, 
+              variant: game.variant,
+              skinW: game.skin_w,
+              skinB: game.skin_b
             });
           }
         }
@@ -239,7 +258,7 @@ export function setupMatchmaking(io: Server) {
   });
 }
 
-function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: string, socketIdW: string, timeControl: string, variant: string) {
+function startGame(io: Server, p1Id: number, p2Id: number, p1SocketId: string, p2SocketId: string, timeControl: string, variant: string) {
   const gameId = Math.random().toString(36).substring(7);
   const board = generateBoard(variant);
   let initialTimer = 600;
@@ -248,16 +267,23 @@ function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: stri
   else if (timeControl === '3|2') { initialTimer = 180; increment = 2; }
   else if (timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
 
-  db.run("INSERT INTO games (id, board, turn, player_w, player_b, status, timer_w, timer_b, increment, last_move_time, variant) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [gameId, JSON.stringify(board), 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant]);
-
-  activeTimers.set(gameId, { timerW: initialTimer, timerB: initialTimer, turn: 'W', increment, lastMoveTime: Date.now() });
+  // Randomize who is White and who is Black
+  const isP1White = Math.random() < 0.5;
+  const userIdW = isP1White ? p1Id : p2Id;
+  const userIdB = isP1White ? p2Id : p1Id;
+  const socketIdW = isP1White ? p1SocketId : p2SocketId;
+  const socketIdB = isP1White ? p2SocketId : p1SocketId;
 
   db.all("SELECT id, username, skin FROM users WHERE id IN (?, ?)", [userIdW, userIdB], (err, users: any[]) => {
     const userW = users.find(u => u.id === userIdW);
     const userB = users.find(u => u.id === userIdB);
     const skinW = userW?.skin || 'classic';
     const skinB = userB?.skin || 'classic';
+
+    db.run("INSERT INTO games (id, board, turn, player_w, player_b, status, timer_w, timer_b, increment, last_move_time, variant, skin_w, skin_b) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [gameId, JSON.stringify(board), 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant, skinW, skinB]);
+
+    activeTimers.set(gameId, { timerW: initialTimer, timerB: initialTimer, turn: 'W', increment, lastMoveTime: Date.now() });
 
     io.to(socketIdW).emit("match_found", { 
       gameId, color: 'W', opponentName: userB?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant, board 
@@ -271,23 +297,45 @@ function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: stri
 function handleGameEnd(io: Server, gameId: string, winner: string | null, reason: 'win' | 'timeout' | 'forfeit', forfeiterId?: number | null, finalBoard?: any, winningLine?: any, finalTimers?: any) {
   activeTimers.delete(gameId);
   db.get("SELECT * FROM games WHERE id = ?", [gameId], (err, game: any) => {
-    if (!game || game.status !== 'active') return;
-
+    if (!game) return;
+    
+    const isAlreadyFinished = game.status === 'finished';
     const playerW = Number(game.player_w);
     const playerB = Number(game.player_b);
     let finalWinner = winner;
 
-    if (reason === 'forfeit' && forfeiterId) {
-      finalWinner = forfeiterId === playerW ? 'B' : 'W';
+    if (!isAlreadyFinished) {
+      if (reason === 'forfeit' && forfeiterId) {
+        finalWinner = forfeiterId === playerW ? 'B' : 'W';
+      }
+      db.run("UPDATE games SET status = 'finished', winner = ? WHERE id = ?", [finalWinner, gameId]);
     }
 
-    db.run("UPDATE games SET status = 'finished', winner = ? WHERE id = ?", [finalWinner, gameId]);
+    const emitFinalUpdate = (eloChange: number = 0) => {
+      io.to(gameId).emit("game_update", {
+        status: 'finished',
+        winner: finalWinner,
+        eloChange,
+        board: finalBoard || JSON.parse(game.board),
+        winningLine,
+        timerW: finalTimers?.timerW || game.timer_w,
+        timerB: finalTimers?.timerB || game.timer_b,
+        skinW: game.skin_w,
+        skinB: game.skin_b,
+        variant: game.variant
+      });
+    };
+
+    if (isAlreadyFinished || !finalWinner || !playerB) {
+      return emitFinalUpdate(0);
+    }
 
     db.all("SELECT id, elo FROM users WHERE id IN (?, ?)", [playerW, playerB], (err, users: any[]) => {
-      if (!users || users.length < 2) return;
+      if (!users || users.length < 2) return emitFinalUpdate(0);
+      
       const whitePlayer = users.find(u => u.id === playerW);
       const blackPlayer = users.find(u => u.id === playerB);
-      if (!whitePlayer || !blackPlayer) return;
+      if (!whitePlayer || !blackPlayer) return emitFinalUpdate(0);
 
       const winnerElo = finalWinner === 'W' ? whitePlayer.elo : blackPlayer.elo;
       const loserElo = finalWinner === 'W' ? blackPlayer.elo : whitePlayer.elo;
@@ -298,16 +346,12 @@ function handleGameEnd(io: Server, gameId: string, winner: string | null, reason
 
       const isRandomSetup = game.variant === 'random_setup';
       const isFogOfWar = game.variant === 'fog_of_war';
-      const isOneMin = game.timer_w === 60 || (game.timer_w === 15 && game.increment === 3); // 1min or 15s|3s
+      const isOneMin = game.timer_w === 60 || (game.timer_w === 15 && game.increment === 3);
 
-      const winnerUpdates = [
-        "elo = ?", "wins = wins + 1", "games_played = games_played + 1"
-      ];
-      const loserUpdates = [
-        "elo = ?", "games_played = games_played + 1"
-      ];
-      const winnerParams = [winnerElo + change];
-      const loserParams = [loserElo - change];
+      const winnerUpdates = ["elo = elo + ?", "wins = wins + 1", "games_played = games_played + 1"];
+      const loserUpdates = ["elo = elo - ?", "games_played = games_played + 1"];
+      const winnerParams: any[] = [change];
+      const loserParams: any[] = [change];
 
       if (isRandomSetup) {
         winnerUpdates.push("games_random_setup = games_random_setup + 1");
@@ -329,22 +373,13 @@ function handleGameEnd(io: Server, gameId: string, winner: string | null, reason
         db.run(`UPDATE users SET ${winnerUpdates.join(", ")} WHERE id = ?`, winnerParams, () => updateUnlockedSkins(winnerId));
         db.run(`UPDATE users SET ${loserUpdates.join(", ")} WHERE id = ?`, loserParams, () => updateUnlockedSkins(loserId));
       } else {
-        // Just wins and games played (already in updates, but skip ELO)
         const winUpdatesUnrated = winnerUpdates.filter(u => !u.includes("elo"));
         const loseUpdatesUnrated = loserUpdates.filter(u => !u.includes("elo"));
         db.run(`UPDATE users SET ${winUpdatesUnrated.join(", ")} WHERE id = ?`, winnerParams.slice(1), () => updateUnlockedSkins(winnerId));
         db.run(`UPDATE users SET ${loseUpdatesUnrated.join(", ")} WHERE id = ?`, loserParams.slice(1), () => updateUnlockedSkins(loserId));
       }
 
-      io.to(gameId).emit("game_update", {
-        status: 'finished',
-        winner: finalWinner,
-        eloChange: game.is_rated ? change : 0,
-        board: finalBoard || JSON.parse(game.board),
-        winningLine,
-        timerW: finalTimers?.timerW,
-        timerB: finalTimers?.timerB
-      });
+      emitFinalUpdate(game.is_rated ? change : 0);
     });
   });
 }

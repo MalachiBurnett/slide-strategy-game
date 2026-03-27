@@ -8,19 +8,21 @@ import { LobbyView } from './components/LobbyView';
 import { QueueView } from './components/QueueView';
 import { GameView } from './components/GameView';
 import { CosmeticsView } from './components/CosmeticsView';
+import { ProfileView, ResetPasswordView } from './components/ProfileView';
 import { Mail, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const socket: Socket = io();
 
-const VerifyView: React.FC<{ token: string, onDone: () => void }> = ({ token, onDone }) => {
+const VerifyView: React.FC<{ token: string, mode: 'auth' | 'email-change', onDone: () => void }> = ({ token, mode, onDone }) => {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [error, setError] = useState('');
 
   const handleVerify = async () => {
     setStatus('loading');
+    const endpoint = mode === 'auth' ? `/api/verify/${token}` : `/api/profile/verify-email-change/${token}`;
     try {
-      const res = await fetch(`/api/verify/${token}`, { method: 'POST' });
+      const res = await fetch(endpoint, { method: 'POST' });
       if (res.ok) {
         setStatus('success');
       } else {
@@ -39,22 +41,23 @@ const VerifyView: React.FC<{ token: string, onDone: () => void }> = ({ token, on
       <motion.div 
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-[var(--bgLight)] p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border-b-8 border-[var(--accent)] border-opacity-50 text-center"
+        className="bg-[var(--bgLight)] p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border-b-8 border-[var(--primary)] text-center"
       >
         <div className="flex justify-center mb-8">
           <div className="bg-[var(--primary)] p-5 rounded-3xl shadow-lg">
-            <Mail className="w-14 h-14 text-[var(--bg)]" />
+            <Mail className="w-14 h-14 text-[var(--primaryText)]" />
           </div>
         </div>
         
-        <h1 className="text-3xl font-black mb-4">Email Verification</h1>
+        <h1 className="text-3xl font-black mb-4">{mode === 'auth' ? 'Email Verification' : 'Email Change Verification'}</h1>
         
         {status === 'idle' && (
           <>
-            <p className="opacity-60 mb-10 font-medium">Ready to join the game? Click the button below to verify your email address.</p>
+            <p className="opacity-60 mb-4 font-medium text-red-500">If you don't see the email, please check your junk or spam folder!</p>
+            <p className="opacity-60 mb-10 font-medium">Ready? Click the button below to verify your email address.</p>
             <button 
               onClick={handleVerify}
-              className="w-full py-5 bg-[var(--primary)] text-[var(--bg)] rounded-2xl font-black text-xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-[var(--primary)]/20"
+              className="w-full py-5 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-[var(--primary)]/20"
             >
               Verify My Email
             </button>
@@ -64,7 +67,7 @@ const VerifyView: React.FC<{ token: string, onDone: () => void }> = ({ token, on
         {status === 'loading' && (
           <div className="flex flex-col items-center py-8">
             <Loader2 className="w-12 h-12 text-[var(--primary)] animate-spin mb-4" />
-            <p className="font-bold opacity-60">Verifying your account...</p>
+            <p className="font-bold opacity-60">Verifying...</p>
           </div>
         )}
 
@@ -76,9 +79,9 @@ const VerifyView: React.FC<{ token: string, onDone: () => void }> = ({ token, on
             <p className="text-xl font-bold mb-8">Verification Successful!</p>
             <button 
               onClick={onDone}
-              className="w-full py-4 bg-[var(--primary)] text-[var(--bg)] rounded-2xl font-black hover:opacity-90 transition-all"
+              className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black hover:opacity-90 transition-all"
             >
-              Continue to Login
+              Continue
             </button>
           </>
         )}
@@ -92,9 +95,9 @@ const VerifyView: React.FC<{ token: string, onDone: () => void }> = ({ token, on
             <p className="opacity-60 mb-8">{error}</p>
             <button 
               onClick={onDone}
-              className="w-full py-4 bg-[var(--primary)] text-[var(--bg)] rounded-2xl font-black hover:opacity-90 transition-all"
+              className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black hover:opacity-90 transition-all"
             >
-              Back to Login
+              Go Back
             </button>
           </>
         )}
@@ -105,13 +108,15 @@ const VerifyView: React.FC<{ token: string, onDone: () => void }> = ({ token, on
 
 export default function App() {
   const [user, setUser] = useState<UserData | null>(null);
-  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify'>('auth');
+  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify' | 'profile' | 'reset-password'>('auth');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [verifyToken, setVerifyToken] = useState<string | null>(null);
+  const [verifyMode, setVerifyMode] = useState<'auth' | 'email-change'>('auth');
+  const [resetToken, setResetToken] = useState<string | null>(null);
 
   useEffect(() => {
     const path = window.location.pathname;
@@ -119,7 +124,21 @@ export default function App() {
       const token = path.split('/verify/')[1];
       if (token) {
         setVerifyToken(token);
+        setVerifyMode('auth');
         setView('verify');
+      }
+    } else if (path.startsWith('/verify-email-change/')) {
+      const token = path.split('/verify-email-change/')[1];
+      if (token) {
+        setVerifyToken(token);
+        setVerifyMode('email-change');
+        setView('verify');
+      }
+    } else if (path.startsWith('/reset-password/')) {
+      const token = path.split('/reset-password/')[1];
+      if (token) {
+        setResetToken(token);
+        setView('reset-password');
       }
     }
   }, []);
@@ -176,7 +195,7 @@ export default function App() {
         setView('lobby');
       } else {
         setAuthMode('login');
-        setError('Registration successful! Please check your email to verify your account.');
+        setError('Registration successful! Please check your email (and junk/spam folder) to verify your account.');
       }
     } else {
       setError(data.error);
@@ -223,10 +242,15 @@ export default function App() {
   };
 
   const onUpdateCosmetics = async (skin: Skin, theme: Theme) => {
+    const body: any = {};
+    if (skin !== user?.skin) body.skin = skin;
+    if (theme !== user?.theme) body.theme = theme;
+    if (Object.keys(body).length === 0) return;
+
     const res = await fetch('/api/cosmetics', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skin, theme })
+      body: JSON.stringify(body)
     });
     if (res.ok) {
       setUser(prev => prev ? { ...prev, skin, theme } : null);
@@ -272,6 +296,34 @@ export default function App() {
       setTimerW(data.timerW || null);
       setTimerB(data.timerB || null);
       socket.emit('join_game', data.gameId);
+    });
+
+    socket.on('join_private_success', (data: { 
+      gameId: string, 
+      opponentName: string, 
+      skinW: Skin, 
+      skinB: Skin, 
+      variant: string,
+      board: string[][],
+      timerW?: number,
+      timerB?: number
+    }) => {
+      setOpponentName(data.opponentName);
+      setTimerW(data.timerW || null);
+      setTimerB(data.timerB || null);
+      setGameState({ 
+        board: data.board, 
+        turn: 'W', 
+        status: 'active', 
+        winner: null,
+        skinW: data.skinW,
+        skinB: data.skinB,
+        variant: data.variant,
+        timerW: data.timerW,
+        timerB: data.timerB
+      });
+      setView('game');
+      setPrivateCode(null);
     });
 
     socket.on('private_rated_updated', (isRated: boolean) => {
@@ -456,9 +508,16 @@ export default function App() {
     if (gameState?.status === 'active' && !isLocal) {
       socket.emit('forfeit', { gameId, userId: user?.id });
     }
+    setGameId(null);
+    setGameState(null);
+    setOpponentName(null);
+    setSelected(null);
+    setValidMoves([]);
+    setPrivateCode(null);
     setView('lobby');
     setIsLocal(false);
     setShowWinScreen(false);
+    setError('');
   };
 
   const isMovable = (r: number, c: number) => {
@@ -470,9 +529,22 @@ export default function App() {
   };
 
   if (view === 'verify' && verifyToken) {
-    return <VerifyView token={verifyToken} onDone={() => {
+    return <VerifyView token={verifyToken} mode={verifyMode} onDone={() => {
       window.history.replaceState({}, '', '/');
       setVerifyToken(null);
+      if (verifyMode === 'auth') {
+        setView('auth');
+        setAuthMode('login');
+      } else {
+        setView('lobby');
+      }
+    }} />;
+  }
+
+  if (view === 'reset-password' && resetToken) {
+    return <ResetPasswordView token={resetToken} onDone={() => {
+      window.history.replaceState({}, '', '/');
+      setResetToken(null);
       setView('auth');
       setAuthMode('login');
     }} />;
@@ -505,6 +577,7 @@ export default function App() {
         setTimeControl={setTimeControl}
         variant={variant}
         setVariant={setVariant}
+        queueCounts={queueCounts}
         showLeaderboard={showLeaderboard}
         setShowLeaderboard={setShowLeaderboard}
         leaderboard={leaderboard}
@@ -513,6 +586,7 @@ export default function App() {
         setShowTutorial={setShowTutorial}
         setUser={setUser}
         setView={setView}
+        handleLogout={handleLogout}
         startPublicMatch={startPublicMatch}
         startLocalMatch={startLocalMatch}
         createPrivateMatch={createPrivateMatch}
@@ -537,6 +611,16 @@ export default function App() {
         leaderboard={leaderboard}
         onBack={() => setView('lobby')}
         onUpdateCosmetics={onUpdateCosmetics}
+      />
+    );
+  }
+
+  if (view === 'profile' && user) {
+    return (
+      <ProfileView 
+        user={user}
+        onBack={() => setView('lobby')}
+        onUpdateUser={(updated) => setUser(prev => prev ? { ...prev, ...updated } : null)}
       />
     );
   }

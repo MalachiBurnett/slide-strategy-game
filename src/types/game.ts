@@ -33,6 +33,9 @@ export interface UserData {
   elo: number;
   wins: number;
   gamesPlayed: number;
+  gamesRandomSetup: number;
+  games1min: number;
+  gamesFogOfWar: number;
   skin: Skin;
   theme: Theme;
   unlockedSkins: Skin[];

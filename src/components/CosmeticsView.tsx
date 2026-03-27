@@ -46,17 +46,50 @@ export const CosmeticsView: React.FC<CosmeticsViewProps> = ({
     let unlockDesc = "Unlocked by default";
 
     try {
-      const code = skin.requirementCode.replace(/export const/g, 'const');
-      const getExports = new Function(`${code}; return { checkUnlock, progress, unlockRequirement, progressMax };`);
-      const exports = getExports();
+      const req = JSON.parse(skin.requirementCode);
       
-      const userWithRank = { ...user, leaderboardRank: rank };
-      if (exports.progress) progressValue = exports.progress(userWithRank);
-      if (exports.progressMax) progressMax = exports.progressMax(userWithRank);
-      if (exports.unlockRequirement) unlockDesc = exports.unlockRequirement;
-      else if (skin.description) unlockDesc = skin.description;
+      const userWithRank = { 
+        ...user, 
+        leaderboardRank: rank,
+        games_played: user.gamesPlayed,
+        games_random_setup: user.gamesRandomSetup,
+        games_1min: user.games1min,
+        games_fog_of_war: user.gamesFogOfWar
+      };
+
+      if (req.progress) {
+        const getProgress = new Function('user', `return ${req.progress}`);
+        progressValue = getProgress(userWithRank);
+      }
+      if (req.progressMax) {
+        const getProgressMax = new Function('user', `return ${req.progressMax}`);
+        progressMax = getProgressMax(userWithRank);
+      }
+      if (req.unlockRequirement) {
+        unlockDesc = req.unlockRequirement;
+      }
     } catch (e) {
-      // Use defaults
+      // Fallback for legacy format
+      try {
+        const code = skin.requirementCode.replace(/export const/g, 'const');
+        const getExports = new Function(`${code}; return { checkUnlock, progress, unlockRequirement, progressMax };`);
+        const exports = getExports();
+        
+        const userWithRank = { 
+          ...user, 
+          leaderboardRank: rank,
+          games_played: user.gamesPlayed,
+          games_random_setup: user.gamesRandomSetup,
+          games_1min: user.games1min,
+          games_fog_of_war: user.gamesFogOfWar
+        };
+        if (exports.progress) progressValue = exports.progress(userWithRank);
+        if (exports.progressMax) progressMax = exports.progressMax(userWithRank);
+        if (exports.unlockRequirement) unlockDesc = exports.unlockRequirement;
+        else if (skin.description) unlockDesc = skin.description;
+      } catch (e2) {
+        // Use defaults
+      }
     }
 
     return { isUnlocked, progressValue, progressMax, unlockDesc };

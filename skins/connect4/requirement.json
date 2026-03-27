@@ -1,0 +1,6 @@
+{
+  "unlockRequirement": "Win 20 ranked matches",
+  "checkUnlock": "user.wins >= 20",
+  "progress": "user.wins",
+  "progressMax": "20"
+}

@@ -15,12 +15,13 @@ import { initializeDb } from "./db";
 import authRouter from "./auth";
 import { setupMatchmaking } from "./matchmaking";
 import { getSkins } from "./skins";
+import { db } from "./db";
 
 const SQLiteStore = connectSqlite3(session);
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer);
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   await initializeDb();
@@ -75,6 +76,39 @@ async function startServer() {
 
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Type 'ban <username>' to ban a user.`);
+  });
+
+  process.stdin.on('data', (data) => {
+    const text = data.toString().trim();
+    if (text.startsWith('ban ')) {
+      const username = text.split(' ')[1];
+      if (username) {
+        db.run("UPDATE users SET is_banned = 1 WHERE username = ?", [username], function(err) {
+          if (err) console.error("Error banning user:", err);
+          else if (this.changes > 0) {
+            console.log(`User ${username} has been banned.`);
+            db.run("INSERT OR IGNORE INTO banned_names (name) VALUES (?)", [username], (err) => {
+              if (err) console.error("Error adding to banned_names:", err);
+            });
+          } else {
+            console.log(`User ${username} not found.`);
+          }
+        });
+      }
+    } else if (text.startsWith('unban ')) {
+      const username = text.split(' ')[1];
+      if (username) {
+        db.run("UPDATE users SET is_banned = 0 WHERE username = ?", [username], function(err) {
+          if (err) console.error("Error unbanning user:", err);
+          else if (this.changes > 0) {
+            console.log(`User ${username} has been unbanned.`);
+          } else {
+            console.log(`User ${username} not found.`);
+          }
+        });
+      }
+    }
   });
 }
 

@@ -1,0 +1,6 @@
+{
+  "unlockRequirement": "Reach #1 on the leaderboard",
+  "checkUnlock": "user.leaderboardRank === 1",
+  "progress": "user.leaderboardRank === 1 ? 1 : 0",
+  "progressMax": "1"
+}

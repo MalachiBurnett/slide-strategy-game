@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap } from 'lucide-react';
+import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User } from 'lucide-react';
 import { UserData, LeaderboardEntry, Turn } from '../types/game';
 
 interface LobbyViewProps {
   user: UserData | null;
   onlineCount: number;
-  timeControl: '10|0' | '1|0' | '3|2';
-  setTimeControl: (tc: '10|0' | '1|0' | '3|2') => void;
+  timeControl: '0.25|3' | '1|0' | '3|2';
+  setTimeControl: (tc: '0.25|3' | '1|0' | '3|2') => void;
   variant: string;
   setVariant: (v: string) => void;
+  queueCounts: Record<string, Record<string, number>>;
   showLeaderboard: boolean;
   setShowLeaderboard: (show: boolean) => void;
   leaderboard: LeaderboardEntry[];
@@ -17,7 +18,8 @@ interface LobbyViewProps {
   showTutorial: boolean;
   setShowTutorial: (show: boolean) => void;
   setUser: (user: UserData | null) => void;
-  setView: (view: 'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics') => void;
+  setView: (view: 'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'profile') => void;
+  handleLogout: () => void;
   startPublicMatch: () => void;
   startLocalMatch: () => void;
   createPrivateMatch: () => void;
@@ -40,6 +42,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   setTimeControl,
   variant,
   setVariant,
+  queueCounts,
   showLeaderboard,
   setShowLeaderboard,
   leaderboard,
@@ -48,6 +51,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   setShowTutorial,
   setUser,
   setView,
+  handleLogout,
   startPublicMatch,
   startLocalMatch,
   createPrivateMatch,
@@ -70,18 +74,34 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     { id: 'schizophrenic', name: 'Schizophrenic', desc: 'A random square changes every turn!' },
   ];
 
+  const getQueueCountForVariant = (vId: string): number => {
+    if (!queueCounts || !queueCounts[vId]) return 0;
+    return (Object.values(queueCounts[vId]) as number[]).reduce((a, b) => a + b, 0);
+  };
+
   const VariantSelector = () => (
     <div className="flex flex-wrap gap-2 mb-6">
-      {variants.map((v) => (
-        <button
-          key={v.id}
-          onClick={() => setVariant(v.id)}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border-2 ${variant === v.id ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-lg' : 'opacity-60 border-[var(--primary)] border-opacity-20 hover:opacity-100'}`}
-          title={v.desc}
-        >
-          {v.name}
-        </button>
-      ))}
+      {variants.map((v) => {
+        const count = getQueueCountForVariant(v.id);
+        return (
+          <button
+            key={v.id}
+            onClick={() => setVariant(v.id)}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all border-2 flex items-center gap-2 ${variant === v.id ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'bg-[var(--bg)] text-[var(--text)] border-[var(--primary)] border-opacity-30 hover:border-opacity-100'}`}
+            title={v.desc}
+          >
+            {v.name}
+            {count > 0 && (
+              <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full text-[10px]">
+                {count}
+              </span>
+            )}
+            {count === 0 && (
+               <span className="opacity-20 text-[10px]">0</span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 
@@ -90,19 +110,19 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
       <div className="max-w-4xl mx-auto">
         <header className="flex flex-col sm:flex-row justify-between items-center gap-6 mb-8 sm:mb-12">
           <div className="text-center sm:text-left">
-            <h1 className="text-4xl font-bold tracking-tight">SLIDE</h1>
+            <h1 className="text-4xl font-black tracking-tight text-[var(--primary)]">SLIDE</h1>
             <div className="flex items-center justify-center sm:justify-start gap-2 mt-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm opacity-60 font-medium">{onlineCount} Online</span>
+              <span className="text-sm opacity-80 font-bold">{onlineCount} Online</span>
             </div>
           </div>
           <div className="flex flex-col items-center gap-4">
-            <div className="bg-[var(--primary)] bg-opacity-5 p-1 rounded-xl shadow-md border-b-2 border-[var(--primary)] border-opacity-10 flex gap-1">
+            <div className="bg-[var(--primary)] bg-opacity-10 p-1 text-[var(--primaryText)] rounded-xl shadow-md border-b-2 border-[var(--primary)] border-opacity-20 flex gap-1">
               {(['0.25|3', '3|2', '1|0'] as const).map((tc) => (
                 <button
                   key={tc}
                   onClick={() => setTimeControl(tc)}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timeControl === tc ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'opacity-40 hover:opacity-100 hover:text-[var(--primary)]'}`}
+                  className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${timeControl === tc ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'text-[var(--primaryText)] opacity-60 hover:opacity-100 hover:text-[var(--primaryText)]'}`}
                 >
                   {tc === '0.25|3' ? '15s|3s' : tc === '3|2' ? '3|2' : '1 min'}
                 </button>
@@ -112,32 +132,30 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           <div className="flex items-center gap-4 sm:gap-6">
             <button 
               onClick={() => { fetchLeaderboard(); setShowLeaderboard(true); }}
-              className="p-2 sm:p-3 bg-[var(--bg)] rounded-full shadow-md hover:shadow-lg transition-all text-[var(--primary)] border border-[var(--primary)] border-opacity-10"
+              className="p-2 sm:p-3 bg-[var(--bgLight)] rounded-full shadow-md hover:shadow-lg transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-20"
               title="Leaderboard"
             >
               <Trophy className="w-5 h-5 sm:w-6 h-6" />
             </button>
-            <button 
-              onClick={() => setShowPatchNotes(true)}
-              className="p-2 sm:p-3 bg-[var(--bg)] rounded-full shadow-md hover:shadow-lg transition-all text-[var(--primary)] border border-[var(--primary)] border-opacity-10"
-              title="Patch Notes"
-            >
-              <ClipboardList className="w-5 h-5 sm:w-6 h-6" />
-            </button>
             <button
-              onClick={() => { fetchLeaderboard(); setView('cosmetics'); }}
-              className="px-6 py-3 bg-[var(--primary)] text-[var(--primaryText)] rounded-xl shadow-lg hover:scale-105 transition-all font-bold flex items-center gap-2"
+              onClick={() => setView('cosmetics')}
+              className="px-6 py-3 bg-[var(--primary)] text-[var(--primaryText)] rounded-xl shadow-lg hover:scale-105 transition-all font-black"
             >
-              <Users className="w-5 h-5" />
-              <span>Cosmetics</span>
+              Skins
             </button>
-            <div className="text-right">
-              <p className="font-bold text-lg sm:text-xl">{user?.username}</p>
-              <p className="text-xs sm:text-sm text-[var(--primary)] font-bold">ELO: {user?.elo}</p>
+            <div className="text-right flex flex-col items-end">
+              <button 
+                onClick={() => setView('profile')}
+                className="font-black text-lg sm:text-xl hover:text-[var(--primary)] transition-colors flex items-center gap-2"
+              >
+                {user?.username}
+                <User className="w-5 h-5" />
+              </button>
+              <p className="text-xs sm:text-sm text-[var(--primary)] font-black">ELO: {user?.elo}</p>
             </div>
             <button
               onClick={handleLogout}
-              className="p-2 sm:p-3 bg-[var(--bg)] rounded-full shadow-md hover:shadow-lg transition-all text-gray-400 hover:text-red-500 border border-gray-100"
+              className="p-2 sm:p-3 bg-[var(--bgLight)] rounded-full shadow-md hover:shadow-lg transition-all text-gray-400 hover:text-red-500 border-2 border-red-500 border-opacity-10"
             >
               <LogOut className="w-5 h-5 sm:w-6 h-6" />
             </button>
@@ -193,7 +211,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             className="bg-[var(--bg)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50 md:col-span-2"
           >
             <div className="bg-[var(--primary)] bg-opacity-10 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
-              <Hash className="w-7 h-7 sm:w-8 h-8 text-[var(--primary)]" />
+              <Hash className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)]" />
             </div>
             <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Private Match</h2>
             <p className="text-sm sm:text-base opacity-60 mb-6 sm:mb-8 leading-relaxed">Create a room or join a friend using a secret code.</p>
@@ -239,7 +257,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-white p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center relative"
+              className="bg-[var(--bgLight)] p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center relative border-b-8 border-[var(--primary)]"
             >
               <button 
                 onClick={() => { setPrivateCode(null); setGameId(null); setPlayerColor(null); }}
@@ -247,35 +265,35 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               >
                 <LogOut className="w-5 h-5" />
               </button>
-              <h3 className="text-2xl font-bold mb-2">Room Created</h3>
-              <p className="text-gray-500 mb-6">Share this code with your friend</p>
-              <div className="bg-[var(--primary)] bg-opacity-10 p-6 rounded-2xl text-4xl font-mono font-bold tracking-widest text-[var(--primary)] mb-6 border border-[var(--primary)] border-opacity-20">
+              <h3 className="text-2xl font-black mb-2">Room Created</h3>
+              <p className="opacity-60 mb-6">Share this code with your friend</p>
+              <div className="bg-[var(--primary)] text-[var(--primaryText)] p-6 rounded-2xl text-4xl font-mono font-black tracking-widest mb-6 shadow-xl">
                 {privateCode}
               </div>
-              <div className="mb-8 p-4 bg-[var(--primary)] rounded-2xl shadow-inner">
+              <div className="mb-8 p-4 bg-[var(--primary)] bg-opacity-10 rounded-2xl border-2 border-[var(--primary)] border-opacity-20">
                 <div className="flex items-center justify-between gap-4">
                   <div className="text-left">
-                    <p className="text-white font-bold text-sm">Match Type</p>
-                    <p className="text-white opacity-60 text-xs">Rated games affect ELO</p>
+                    <p className="font-black text-sm text-[var(--primaryText)]">Match Type</p>
+                    <p className="opacity-60 text-xs text-[var(--primaryText)]">Rated games affect ELO</p>
                   </div>
                   <button 
                     onClick={toggleRated}
-                    className={`relative w-14 h-8 rounded-full transition-colors duration-200 focus:outline-none ${isRated ? 'bg-green-500' : 'bg-gray-400'}`}
+                    className={`relative w-14 h-8 rounded-full transition-colors duration-200 focus:outline-none ${isRated ? 'bg-[var(--boardLight)]' : 'bg-[var(--boardDark)]'}`}
                   >
                     <div className={`absolute top-1 left-1 bg-white w-6 h-6 rounded-full transition-transform duration-200 transform ${isRated ? 'translate-x-6' : 'translate-x-0'}`} />
                   </button>
                 </div>
                 <div className="mt-2 text-center">
-                   <span className="text-white font-bold text-lg uppercase tracking-wider">{isRated ? 'Rated' : 'Unrated'}</span>
+                   <span className={`font-black text-lg uppercase tracking-wider text-[var(--primaryText)]`}>{isRated ? 'Rated' : 'Unrated'}</span>
                 </div>
               </div>
 
-              <p className="text-sm text-[var(--primary)] opacity-60 animate-pulse mb-4">Waiting for opponent to join...</p>
+              <p className="text-sm text-[var(--primary)] font-bold animate-pulse mb-4">Waiting for opponent...</p>
               <button 
                 onClick={() => { setPrivateCode(null); setGameId(null); setPlayerColor(null); }}
-                className="text-sm font-bold text-[var(--primary)] hover:underline"
+                className="text-sm font-black text-[var(--primary)] hover:underline"
               >
-                Cancel and Go Back
+                Cancel
               </button>
             </motion.div>
           </div>
@@ -297,12 +315,12 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               <h3 className="text-2xl font-bold mb-6 text-center shrink-0">Top Players</h3>
               <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar">
                 {leaderboard.map((entry, idx) => (
-                  <div key={entry.id} className="flex items-center justify-between p-4 bg-[var(--primary)] bg-opacity-5 rounded-2xl border-b-2 border-[var(--primary)] border-opacity-5">
+                  <div key={entry.id} className="flex items-center justify-between p-4 bg-[var(--primary)] bg-opacity-10 rounded-2xl border-b-2 border-[var(--primary)] border-opacity-10">
                     <div className="flex items-center gap-4">
-                      <span className="font-bold opacity-40 w-6">#{idx + 1}</span>
-                      <span className="font-bold">{entry.username}</span>
+                      <span className="font-black opacity-40 w-6 text-[var(--primaryText)]">#{idx + 1}</span>
+                      <span className="font-black text-[var(--primaryText)]">{entry.username}</span>
                     </div>
-                    <span className="font-bold text-[var(--primary)]">{entry.elo} ELO</span>
+                    <span className="font-black text-[var(--primaryText)]">{entry.elo} ELO</span>
                   </div>
                 ))}
               </div>

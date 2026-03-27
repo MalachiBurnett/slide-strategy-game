@@ -19,33 +19,127 @@ router.post("/register", (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password) return res.status(400).json({ error: "Missing fields" });
   
-  const hash = bcrypt.hashSync(password, 10);
-  const token = uuidv4();
-  
-  db.run("INSERT INTO users (username, email, password, elo, verification_token, is_verified) VALUES (?, ?, ?, ?, ?, ?)", 
-    [username, email, hash, 600, token, 0], async function(err) {
-    if (err) {
-      if (err.message.includes("UNIQUE constraint failed: users.username")) {
-        return res.status(400).json({ error: "Username taken" });
-      }
-      if (err.message.includes("UNIQUE constraint failed: users.email")) {
-        return res.status(400).json({ error: "Email already registered" });
-      }
-      return res.status(500).json({ error: "Database error" });
-    }
+  db.get("SELECT * FROM banned_names WHERE name = ?", [username], (err, banned) => {
+    if (banned) return res.status(403).json({ error: "This name is banned and cannot be used." });
 
+    const hash = bcrypt.hashSync(password, 10);
+    const token = uuidv4();
+    
+    db.run("INSERT INTO users (username, email, password, elo, verification_token, is_verified) VALUES (?, ?, ?, ?, ?, ?)", 
+      [username, email, hash, 600, token, 0], async function(err) {
+      if (err) {
+        if (err.message.includes("UNIQUE constraint failed: users.username")) {
+          return res.status(400).json({ error: "Username taken" });
+        }
+        if (err.message.includes("UNIQUE constraint failed: users.email")) {
+          return res.status(400).json({ error: "Email already registered" });
+        }
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      try {
+        await resend.emails.send({
+          from: "verify@slide.wiizardsoftware.uk",
+          to: email,
+          subject: "Verify your Slide account",
+          html: `<p>Hello ${username},</p><p>Please verify your email by clicking the link below:</p><p><a href="https://slide.wiizardsoftware.uk/verify/${token}">Verify Email</a></p>`
+        });
+        res.json({ success: true, message: "Verification email sent!" });
+      } catch (sendErr) {
+        console.error("Email send error:", sendErr);
+        res.json({ success: true, message: "User registered, but failed to send verification email." });
+      }
+    });
+  });
+});
+
+// Profile endpoints
+router.post("/profile/username", (req, res) => {
+  const userId = (req.session as any).userId;
+  if (!userId) return res.status(401).json({ error: "Not logged in" });
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ error: "Username required" });
+
+  db.get("SELECT * FROM banned_names WHERE name = ?", [username], (err, banned) => {
+    if (banned) return res.status(403).json({ error: "This name is banned." });
+
+    db.run("UPDATE users SET username = ?, is_banned = 0 WHERE id = ?", [username, userId], function(err) {
+      if (err) {
+        if (err.message.includes("UNIQUE constraint failed")) return res.status(400).json({ error: "Username taken" });
+        return res.status(500).json({ error: "Update failed" });
+      }
+      (req.session as any).username = username;
+      res.json({ success: true, username });
+    });
+  });
+});
+
+router.post("/profile/password-reset-request", (req, res) => {
+  const userId = (req.session as any).userId;
+  if (!userId) return res.status(401).json({ error: "Not logged in" });
+
+  db.get("SELECT * FROM users WHERE id = ?", [userId], async (err, user: any) => {
+    if (!user || user.is_guest) return res.status(400).json({ error: "Cannot reset password for guest" });
+    
+    const token = uuidv4();
+    db.run("UPDATE users SET password_reset_token = ? WHERE id = ?", [token, userId]);
+    
     try {
       await resend.emails.send({
-        from: "verify@slide.wiizardsoftware.uk",
-        to: email,
-        subject: "Verify your Slide account",
-        html: `<p>Hello ${username},</p><p>Please verify your email by clicking the link below:</p><p><a href="https://slide.wiizardsoftware.uk/verify/${token}">Verify Email</a></p>`
+        from: "security@slide.wiizardsoftware.uk",
+        to: user.email,
+        subject: "Slide Password Reset",
+        html: `<p>Hello ${user.username},</p><p>Click the link below to reset your password:</p><p><a href="https://slide.wiizardsoftware.uk/reset-password/${token}">Reset Password</a></p>`
       });
-      res.json({ success: true, message: "Verification email sent!" });
-    } catch (sendErr) {
-      console.error("Email send error:", sendErr);
-      res.json({ success: true, message: "User registered, but failed to send verification email." });
+      res.json({ success: true, message: "Reset email sent!" });
+    } catch (e) {
+      res.status(500).json({ error: "Failed to send email" });
     }
+  });
+});
+
+router.post("/profile/password-reset-confirm", (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) return res.status(400).json({ error: "Missing fields" });
+
+  const hash = bcrypt.hashSync(newPassword, 10);
+  db.run("UPDATE users SET password = ?, password_reset_token = NULL WHERE password_reset_token = ?", [hash, token], function(err) {
+    if (err || this.changes === 0) return res.status(400).json({ error: "Invalid or expired token" });
+    res.json({ success: true });
+  });
+});
+
+router.post("/profile/email-change-request", (req, res) => {
+  const userId = (req.session as any).userId;
+  if (!userId) return res.status(401).json({ error: "Not logged in" });
+  const { newEmail } = req.body;
+  if (!newEmail) return res.status(400).json({ error: "Email required" });
+
+  const token = uuidv4();
+  db.run("UPDATE users SET verification_token = ?, new_email = ? WHERE id = ?", [token, newEmail, userId]);
+
+  try {
+    resend.emails.send({
+      from: "verify@slide.wiizardsoftware.uk",
+      to: newEmail,
+      subject: "Verify your new email for Slide",
+      html: `<p>Please verify your new email by clicking here:</p><p><a href="https://slide.wiizardsoftware.uk/verify-email-change/${token}">Verify New Email</a></p>`
+    });
+    res.json({ success: true, message: "Verification email sent to new address!" });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to send email" });
+  }
+});
+
+router.post("/profile/verify-email-change/:token", (req, res) => {
+  const { token } = req.params;
+  db.get("SELECT * FROM users WHERE verification_token = ?", [token], (err, user: any) => {
+    if (!user || !user.new_email) return res.status(400).json({ error: "Invalid token" });
+    
+    db.run("UPDATE users SET email = ?, new_email = NULL, verification_token = NULL WHERE id = ?", [user.new_email, user.id], (err) => {
+      if (err) return res.status(500).json({ error: "Update failed" });
+      res.json({ success: true });
+    });
   });
 });
 
@@ -167,6 +261,29 @@ router.post("/cosmetics", (req, res) => {
       res.json({ success: true });
     });
   });
+});
+
+router.post("/report", (req, res) => {
+  const userId = (req.session as any).userId;
+  const username = (req.session as any).username || "Guest";
+  const { complaint } = req.body;
+
+  if (!complaint) return res.status(400).json({ error: "Complaint required" });
+
+  console.log(`[REPORT] User: ${username} (ID: ${userId}) - Message: ${complaint}`);
+
+  try {
+    resend.emails.send({
+      from: "report@slide.wiizardsoftware.uk",
+      to: "maliburnett@icloud.com",
+      subject: `Slide Report from ${username}`,
+      html: `<p><strong>User:</strong> ${username}</p><p><strong>Message:</strong> ${complaint}</p>`
+    });
+    res.json({ success: true, message: "Report sent successfully!" });
+  } catch (e) {
+    console.error("Report email error:", e);
+    res.status(500).json({ error: "Failed to send report" });
+  }
 });
 
 export default router;
