@@ -98,13 +98,13 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           </div>
           <div className="flex flex-col items-center gap-4">
             <div className="bg-[var(--primary)] bg-opacity-5 p-1 rounded-xl shadow-md border-b-2 border-[var(--primary)] border-opacity-10 flex gap-1">
-              {(['10|0', '3|2', '1|0'] as const).map((tc) => (
+              {(['0.25|3', '3|2', '1|0'] as const).map((tc) => (
                 <button
                   key={tc}
                   onClick={() => setTimeControl(tc)}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timeControl === tc ? 'bg-[var(--primary)] text-white shadow-lg' : 'opacity-40 hover:opacity-100 hover:text-[var(--primary)]'}`}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${timeControl === tc ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'opacity-40 hover:opacity-100 hover:text-[var(--primary)]'}`}
                 >
-                  {tc === '10|0' ? '10 min' : tc === '3|2' ? '3|2' : '1 min'}
+                  {tc === '0.25|3' ? '15s|3s' : tc === '3|2' ? '3|2' : '1 min'}
                 </button>
               ))}
             </div>
@@ -124,9 +124,9 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             >
               <ClipboardList className="w-5 h-5 sm:w-6 h-6" />
             </button>
-            <button 
+            <button
               onClick={() => { fetchLeaderboard(); setView('cosmetics'); }}
-              className="px-6 py-3 bg-[var(--primary)] text-white rounded-xl shadow-lg hover:scale-105 transition-all font-bold flex items-center gap-2"
+              className="px-6 py-3 bg-[var(--primary)] text-[var(--primaryText)] rounded-xl shadow-lg hover:scale-105 transition-all font-bold flex items-center gap-2"
             >
               <Users className="w-5 h-5" />
               <span>Cosmetics</span>
@@ -135,29 +135,36 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               <p className="font-bold text-lg sm:text-xl">{user?.username}</p>
               <p className="text-xs sm:text-sm text-[var(--primary)] font-bold">ELO: {user?.elo}</p>
             </div>
-            <button 
-              onClick={() => { setUser(null); setView('auth'); }}
+            <button
+              onClick={handleLogout}
               className="p-2 sm:p-3 bg-[var(--bg)] rounded-full shadow-md hover:shadow-lg transition-all text-gray-400 hover:text-red-500 border border-gray-100"
             >
               <LogOut className="w-5 h-5 sm:w-6 h-6" />
             </button>
           </div>
-        </header>
+          </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+          <div className="bg-[var(--bgLight)] p-6 rounded-3xl shadow-lg mb-8 border-b-4 border-[var(--primary)] border-opacity-20">
+          <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+            <Zap className="w-5 h-5 text-[var(--primary)]" />
+            Select Variant
+          </h3>
+          <VariantSelector />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50"
           >
             <div className="bg-[var(--primary)] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
-              <Play className="w-7 h-7 sm:w-8 h-8 text-[var(--bg)] fill-current" />
+              <Play className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)] fill-current" />
             </div>
             <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Public Match</h2>
             <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Match against players within ±200 ELO range.</p>
-            <VariantSelector />
             <button 
               onClick={startPublicMatch}
-              className="w-full py-3 sm:py-4 bg-[var(--primary)] text-white rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--primary)]/20"
+              className="w-full py-3 sm:py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--primary)]/20"
             >
               Find Match
             </button>
@@ -168,14 +175,14 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50"
           >
             <div className="bg-[var(--accent)] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
-              <Users className="w-7 h-7 sm:w-8 h-8 text-white" />
+              <Users className="w-7 h-7 sm:w-8 h-8 text-[var(--accentText)]" />
             </div>
             <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Local Play</h2>
             <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Play with a friend on the same machine.</p>
             <div className="h-[52px]"></div>
             <button 
               onClick={startLocalMatch}
-              className="w-full py-3 sm:py-4 bg-[var(--accent)] text-white rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--accent)]/20"
+              className="w-full py-3 sm:py-4 bg-[var(--accent)] text-[var(--accentText)] rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--accent)]/20"
             >
               Start Local Game
             </button>
@@ -190,13 +197,11 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             </div>
             <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Private Match</h2>
             <p className="text-sm sm:text-base opacity-60 mb-6 sm:mb-8 leading-relaxed">Create a room or join a friend using a secret code.</p>
-            
-            <VariantSelector />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button 
                 onClick={createPrivateMatch}
-                className="w-full py-3 sm:py-4 bg-[var(--bg)] border-2 border-[var(--primary)] text-[var(--primary)] rounded-2xl font-bold text-base sm:text-lg hover:bg-[var(--primary)] hover:text-white transition-all"
+                className="w-full py-3 sm:py-4 bg-[var(--bg)] border-2 border-[var(--primary)] text-[var(--primary)] rounded-2xl font-bold text-base sm:text-lg hover:bg-[var(--primary)] hover:text-[var(--primaryText)] transition-all"
               >
                 Create Room
               </button>
@@ -204,22 +209,22 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                 <input 
                   type="text" 
                   placeholder="Enter Code" 
-                  className="flex-1 px-4 py-3 sm:py-4 bg-[var(--primary)] bg-opacity-80 border border-[var(--primary)] border-opacity-10 rounded-2xl outline-none focus:ring-2 focus:ring-[var(--primary)] font-mono text-center uppercase text-base sm:text-lg text-white placeholder:text-white placeholder:opacity-60 shadow-inner"
+                  className="flex-1 px-4 py-3 sm:py-4 bg-[var(--primary)] bg-opacity-80 border border-[var(--primary)] border-opacity-10 rounded-2xl outline-none focus:ring-2 focus:ring-[var(--primary)] font-mono text-center uppercase text-base sm:text-lg text-[var(--primaryText)] placeholder:text-[var(--primaryText)] placeholder:opacity-60 shadow-inner"
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value)}
                 />
                 <button 
                   onClick={joinPrivateMatch}
-                  className="w-full sm:w-auto px-8 py-3 sm:py-4 bg-[var(--primary)] text-white rounded-2xl font-bold hover:opacity-90 transition-all"
+                  className="w-full sm:w-auto px-8 py-3 sm:py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-bold hover:opacity-90 transition-all"
                 >
                   Join
                 </button>
               </div>
             </div>
           </motion.div>
-        </div>
+          </div>
 
-        {error && (
+          {error && (
           <motion.div 
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -227,9 +232,9 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           >
             {error}
           </motion.div>
-        )}
+          )}
 
-        {privateCode && (
+          {privateCode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
@@ -244,10 +249,9 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               </button>
               <h3 className="text-2xl font-bold mb-2">Room Created</h3>
               <p className="text-gray-500 mb-6">Share this code with your friend</p>
-              <div className="bg-[var(--primary)] bg-opacity-5 p-6 rounded-2xl text-4xl font-mono font-bold tracking-widest text-[var(--primary)] mb-6 border border-[var(--primary)] border-opacity-20">
+              <div className="bg-[var(--primary)] bg-opacity-10 p-6 rounded-2xl text-4xl font-mono font-bold tracking-widest text-[var(--primary)] mb-6 border border-[var(--primary)] border-opacity-20">
                 {privateCode}
               </div>
-
               <div className="mb-8 p-4 bg-[var(--primary)] rounded-2xl shadow-inner">
                 <div className="flex items-center justify-between gap-4">
                   <div className="text-left">

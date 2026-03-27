@@ -7,6 +7,9 @@ import fs from "fs";
 import session from "express-session";
 import cookieParser from "cookie-parser";
 import connectSqlite3 from "connect-sqlite3";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 import { initializeDb } from "./db";
 import authRouter from "./auth";

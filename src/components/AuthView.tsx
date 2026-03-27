@@ -1,12 +1,14 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { User, LogIn, UserPlus, Trophy, Lock, Users } from 'lucide-react';
+import { User, LogIn, UserPlus, Trophy, Lock, Users, Mail } from 'lucide-react';
 
 interface AuthViewProps {
   authMode: 'login' | 'register';
   setAuthMode: (mode: 'login' | 'register') => void;
   username: string;
   setUsername: (value: string) => void;
+  email: string;
+  setEmail: (value: string) => void;
   password: string;
   setPassword: (value: string) => void;
   error: string;
@@ -19,6 +21,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
   setAuthMode,
   username,
   setUsername,
+  email,
+  setEmail,
   password,
   setPassword,
   error,
@@ -45,12 +49,24 @@ export const AuthView: React.FC<AuthViewProps> = ({
             <User className="absolute left-4 top-4 w-5 h-5 text-[var(--primary)] opacity-60" />
             <input 
               type="text" 
-              placeholder="Username" 
+              placeholder={authMode === 'login' ? "Username or Email" : "Username"} 
               className="w-full pl-12 pr-4 py-4 bg-[var(--primary)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
           </div>
+          {authMode === 'register' && (
+            <div className="relative">
+              <Mail className="absolute left-4 top-4 w-5 h-5 text-[var(--primary)] opacity-60" />
+              <input 
+                type="email" 
+                placeholder="Email Address" 
+                className="w-full pl-12 pr-4 py-4 bg-[var(--primary)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+          )}
           <div className="relative">
             <Lock className="absolute left-4 top-4 w-5 h-5 text-[var(--primary)] opacity-60" />
             <input 

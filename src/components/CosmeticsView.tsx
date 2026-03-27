@@ -47,12 +47,14 @@ export const CosmeticsView: React.FC<CosmeticsViewProps> = ({
 
     try {
       const code = skin.requirementCode.replace(/export const/g, 'const');
-      const getExports = new Function(`${code}; return { checkUnlock, progress, unlockRequirement, progressMax: pMax };`);
+      const getExports = new Function(`${code}; return { checkUnlock, progress, unlockRequirement, progressMax };`);
       const exports = getExports();
       
-      if (exports.progress) progressValue = exports.progress(user);
-      if (exports.progressMax) progressMax = exports.progressMax(user);
+      const userWithRank = { ...user, leaderboardRank: rank };
+      if (exports.progress) progressValue = exports.progress(userWithRank);
+      if (exports.progressMax) progressMax = exports.progressMax(userWithRank);
       if (exports.unlockRequirement) unlockDesc = exports.unlockRequirement;
+      else if (skin.description) unlockDesc = skin.description;
     } catch (e) {
       // Use defaults
     }

@@ -8,17 +8,121 @@ import { LobbyView } from './components/LobbyView';
 import { QueueView } from './components/QueueView';
 import { GameView } from './components/GameView';
 import { CosmeticsView } from './components/CosmeticsView';
+import { Mail, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { motion } from 'motion/react';
 
 const socket: Socket = io();
 
+const VerifyView: React.FC<{ token: string, onDone: () => void }> = ({ token, onDone }) => {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [error, setError] = useState('');
+
+  const handleVerify = async () => {
+    setStatus('loading');
+    try {
+      const res = await fetch(`/api/verify/${token}`, { method: 'POST' });
+      if (res.ok) {
+        setStatus('success');
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Verification failed');
+        setStatus('error');
+      }
+    } catch (e) {
+      setError('Connection error');
+      setStatus('error');
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4 font-sans text-[var(--text)] transition-colors duration-500">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-[var(--bgLight)] p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border-b-8 border-[var(--accent)] border-opacity-50 text-center"
+      >
+        <div className="flex justify-center mb-8">
+          <div className="bg-[var(--primary)] p-5 rounded-3xl shadow-lg">
+            <Mail className="w-14 h-14 text-[var(--bg)]" />
+          </div>
+        </div>
+        
+        <h1 className="text-3xl font-black mb-4">Email Verification</h1>
+        
+        {status === 'idle' && (
+          <>
+            <p className="opacity-60 mb-10 font-medium">Ready to join the game? Click the button below to verify your email address.</p>
+            <button 
+              onClick={handleVerify}
+              className="w-full py-5 bg-[var(--primary)] text-[var(--bg)] rounded-2xl font-black text-xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-[var(--primary)]/20"
+            >
+              Verify My Email
+            </button>
+          </>
+        )}
+
+        {status === 'loading' && (
+          <div className="flex flex-col items-center py-8">
+            <Loader2 className="w-12 h-12 text-[var(--primary)] animate-spin mb-4" />
+            <p className="font-bold opacity-60">Verifying your account...</p>
+          </div>
+        )}
+
+        {status === 'success' && (
+          <>
+            <div className="flex justify-center mb-6">
+              <CheckCircle className="w-16 h-16 text-green-500" />
+            </div>
+            <p className="text-xl font-bold mb-8">Verification Successful!</p>
+            <button 
+              onClick={onDone}
+              className="w-full py-4 bg-[var(--primary)] text-[var(--bg)] rounded-2xl font-black hover:opacity-90 transition-all"
+            >
+              Continue to Login
+            </button>
+          </>
+        )}
+
+        {status === 'error' && (
+          <>
+            <div className="flex justify-center mb-6">
+              <XCircle className="w-16 h-16 text-red-500" />
+            </div>
+            <p className="text-xl font-bold mb-2 text-red-500">Error</p>
+            <p className="opacity-60 mb-8">{error}</p>
+            <button 
+              onClick={onDone}
+              className="w-full py-4 bg-[var(--primary)] text-[var(--bg)] rounded-2xl font-black hover:opacity-90 transition-all"
+            >
+              Back to Login
+            </button>
+          </>
+        )}
+      </motion.div>
+    </div>
+  );
+};
+
 export default function App() {
-  console.log("App rendering...");
   const [user, setUser] = useState<UserData | null>(null);
-  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics'>('auth');
+  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify'>('auth');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [verifyToken, setVerifyToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (path.startsWith('/verify/')) {
+      const token = path.split('/verify/')[1];
+      if (token) {
+        setVerifyToken(token);
+        setView('verify');
+      }
+    }
+  }, []);
   
   const [gameId, setGameId] = useState<string | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -36,8 +140,8 @@ export default function App() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [showTutorial, setShowTutorial] = useState(false);
   const [onlineCount, setOnlineCount] = useState(0);
-  const [queueCounts, setQueueCounts] = useState<Record<string, number>>({ '10|0': 0, '1|0': 0, '3|2': 0 });
-  const [timeControl, setTimeControl] = useState<'10|0' | '1|0' | '3|2'>('10|0');
+  const [queueCounts, setQueueCounts] = useState<Record<string, Record<string, number>>>({});
+  const [timeControl, setTimeControl] = useState<'0.25|3' | '1|0' | '3|2'>('0.25|3');
   const [variant, setVariant] = useState<string>('classic');
   const [timerW, setTimerW] = useState<number | null>(null);
   const [timerB, setTimerB] = useState<number | null>(null);
@@ -56,10 +160,14 @@ export default function App() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
+    const body = authMode === 'login' 
+      ? { username, password } 
+      : { username, email, password };
+      
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify(body)
     });
     const data = await res.json();
     if (res.ok) {
@@ -68,7 +176,7 @@ export default function App() {
         setView('lobby');
       } else {
         setAuthMode('login');
-        setError('Registration successful! Please login.');
+        setError('Registration successful! Please check your email to verify your account.');
       }
     } else {
       setError(data.error);
@@ -84,18 +192,27 @@ export default function App() {
     }
   };
 
+  const handleLogout = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    setUser(null);
+    setView('auth');
+  };
+
   const checkMe = useCallback(async () => {
     const res = await fetch('/api/me');
     if (res.ok) {
       const data = await res.json();
       setUser(data);
       if (view === 'auth') setView('lobby');
+    } else {
+      setUser(null);
+      if (view !== 'auth' && view !== 'verify') setView('auth');
     }
   }, [view]);
 
   useEffect(() => {
     checkMe();
-  }, [checkMe]);
+  }, []); 
 
   const fetchLeaderboard = async () => {
     const res = await fetch('/api/leaderboard');
@@ -125,7 +242,9 @@ export default function App() {
       timerW?: number, 
       timerB?: number,
       skinW: Skin,
-      skinB: Skin
+      skinB: Skin,
+      variant: string,
+      board: string[][]
     }) => {
       setGameId(data.gameId);
       setPlayerColor(data.color);
@@ -134,18 +253,19 @@ export default function App() {
       setTimerB(data.timerB || null);
       socket.emit('join_game', data.gameId);
       setGameState({ 
-        board: INITIAL_BOARD, 
+        board: data.board, 
         turn: 'W', 
         status: 'active', 
         winner: null,
         skinW: data.skinW,
-        skinB: data.skinB
+        skinB: data.skinB,
+        variant: data.variant
       });
       setView('game');
       setPrivateCode(null);
     });
 
-    socket.on('private_created', (data: { code: string, gameId: string, timerW?: number, timerB?: number }) => {
+    socket.on('private_created', (data: { code: string, gameId: string, timerW?: number, timerB?: number, variant: string }) => {
       setPrivateCode(data.code);
       setGameId(data.gameId);
       setPlayerColor('W');
@@ -173,7 +293,7 @@ export default function App() {
       setOnlineCount(count);
     });
 
-    socket.on('queue_counts', (counts: Record<string, number>) => {
+    socket.on('queue_counts', (counts: Record<string, Record<string, number>>) => {
       setQueueCounts(counts);
     });
 
@@ -225,11 +345,18 @@ export default function App() {
           newBoard[r][c] = piece;
           newBoard[selected.r][selected.c] = '0';
           
+          if (gameState.variant === 'schizophrenic') {
+            const randR = Math.floor(Math.random() * 6);
+            const randC = Math.floor(Math.random() * 6);
+            newBoard[randR][randC] = ['0', 'W', 'B'][Math.floor(Math.random() * 3)];
+          }
+
           const winResult = checkWin(newBoard);
           const winner = winResult ? winResult.winner : null;
           const winningLine = winResult ? winResult.line : null;
           
           setGameState({
+            ...gameState,
             board: newBoard,
             turn: currentTurn === 'W' ? 'B' : 'W',
             status: winner ? 'finished' : 'active',
@@ -267,7 +394,7 @@ export default function App() {
     setOpponentName(null);
     setTimerW(null);
     setTimerB(null);
-    socket.emit('join_queue', { userId: user.id, elo: user.elo, timeControl });
+    socket.emit('join_queue', { userId: user.id, elo: user.elo, timeControl, variant });
     setView('queue');
     setError('');
   };
@@ -280,7 +407,7 @@ export default function App() {
 
   const createPrivateMatch = () => {
     if (!user) return;
-    socket.emit('create_private', { userId: user.id, timeControl });
+    socket.emit('create_private', { userId: user.id, timeControl, variant });
   };
 
   const joinPrivateMatch = () => {
@@ -297,7 +424,24 @@ export default function App() {
     setIsLocal(true);
     setGameId('local');
     setPlayerColor('W');
-    setGameState({ board: INITIAL_BOARD, turn: 'W', status: 'active', winner: null });
+    
+    let board = INITIAL_BOARD;
+    if (variant === 'random_setup') {
+      const b = Array(6).fill(null).map(() => Array(6).fill('0'));
+      const pieces = ['W', 'W', 'W', 'W', 'W', 'W', 'B', 'B', 'B', 'B', 'B', 'B'];
+      let placed = 0;
+      while (placed < 12) {
+        const r = Math.floor(Math.random() * 6);
+        const c = Math.floor(Math.random() * 6);
+        if (b[r][c] === '0') {
+          b[r][c] = pieces[placed];
+          placed++;
+        }
+      }
+      board = b;
+    }
+
+    setGameState({ board, turn: 'W', status: 'active', winner: null, variant });
     setView('game');
   };
 
@@ -325,6 +469,15 @@ export default function App() {
     return getValidMoves(gameState.board, r, c).length > 0;
   };
 
+  if (view === 'verify' && verifyToken) {
+    return <VerifyView token={verifyToken} onDone={() => {
+      window.history.replaceState({}, '', '/');
+      setVerifyToken(null);
+      setView('auth');
+      setAuthMode('login');
+    }} />;
+  }
+
   if (view === 'auth') {
     return (
       <AuthView 
@@ -332,6 +485,8 @@ export default function App() {
         setAuthMode={setAuthMode}
         username={username}
         setUsername={setUsername}
+        email={email}
+        setEmail={setEmail}
         password={password}
         setPassword={setPassword}
         error={error}
@@ -390,6 +545,7 @@ export default function App() {
     return (
       <QueueView 
         timeControl={timeControl}
+        variant={variant}
         queueCounts={queueCounts}
         leaveQueue={leaveQueue}
       />

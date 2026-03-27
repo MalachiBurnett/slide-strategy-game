@@ -17,11 +17,17 @@ export function setupMatchmaking(io: Server) {
   }
 
   function broadcastQueueCounts() {
-    const counts = {
-      '10|0': publicQueue.filter(q => q.timeControl === '10|0').length,
-      '1|0': publicQueue.filter(q => q.timeControl === '1|0').length,
-      '3|2': publicQueue.filter(q => q.timeControl === '3|2').length
-    };
+    const variants = ['classic', 'fog_of_war', 'random_setup', 'schizophrenic'];
+    const timeControls = ['0.25|3', '1|0', '3|2'];
+    const counts: Record<string, Record<string, number>> = {};
+    
+    variants.forEach(v => {
+      counts[v] = {};
+      timeControls.forEach(tc => {
+        counts[v][tc] = publicQueue.filter(q => q.timeControl === tc && q.variant === v).length;
+      });
+    });
+    
     io.emit("queue_counts", counts);
   }
 
@@ -77,7 +83,7 @@ export function setupMatchmaking(io: Server) {
 
     socket.on("join_queue", (data: {userId: number, elo: number, timeControl: string, variant: string}) => {
       socketToUser.set(socket.id, data.userId);
-      const matchIdx = publicQueue.findIndex(q => q.timeControl === data.timeControl && Math.abs(q.elo - data.elo) <= 200);
+      const matchIdx = publicQueue.findIndex(q => q.timeControl === data.timeControl && q.variant === data.variant && Math.abs(q.elo - data.elo) <= 200);
       
       if (matchIdx !== -1) {
         const opponent = publicQueue.splice(matchIdx, 1)[0];
@@ -109,6 +115,7 @@ export function setupMatchmaking(io: Server) {
       let increment = 0;
       if (data.timeControl === '1|0') initialTimer = 60;
       else if (data.timeControl === '3|2') { initialTimer = 180; increment = 2; }
+      else if (data.timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
 
       db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [gameId, board, 'W', data.userId, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variant]);
@@ -145,7 +152,7 @@ export function setupMatchmaking(io: Server) {
 
           io.to(gameId).emit("match_found", { 
             gameId, 
-            color: 'B', // This is generic, handled by specific emits below
+            color: 'B',
             opponentName: userW?.username, 
             timerW: game.timer_w, 
             timerB: game.timer_b,
@@ -234,14 +241,15 @@ export function setupMatchmaking(io: Server) {
 
 function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: string, socketIdW: string, timeControl: string, variant: string) {
   const gameId = Math.random().toString(36).substring(7);
-  const board = JSON.stringify(INITIAL_BOARD);
+  const board = generateBoard(variant);
   let initialTimer = 600;
   let increment = 0;
   if (timeControl === '1|0') initialTimer = 60;
   else if (timeControl === '3|2') { initialTimer = 180; increment = 2; }
+  else if (timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
 
   db.run("INSERT INTO games (id, board, turn, player_w, player_b, status, timer_w, timer_b, increment, last_move_time, variant) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [gameId, board, 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant]);
+    [gameId, JSON.stringify(board), 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant]);
 
   activeTimers.set(gameId, { timerW: initialTimer, timerB: initialTimer, turn: 'W', increment, lastMoveTime: Date.now() });
 
@@ -252,10 +260,10 @@ function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: stri
     const skinB = userB?.skin || 'classic';
 
     io.to(socketIdW).emit("match_found", { 
-      gameId, color: 'W', opponentName: userB?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant 
+      gameId, color: 'W', opponentName: userB?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant, board 
     });
     io.to(socketIdB).emit("match_found", { 
-      gameId, color: 'B', opponentName: userW?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant 
+      gameId, color: 'B', opponentName: userW?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant, board 
     });
   });
 }
@@ -288,12 +296,44 @@ function handleGameEnd(io: Server, gameId: string, winner: string | null, reason
       const winnerId = finalWinner === 'W' ? playerW : playerB;
       const loserId = finalWinner === 'W' ? playerB : playerW;
 
+      const isRandomSetup = game.variant === 'random_setup';
+      const isFogOfWar = game.variant === 'fog_of_war';
+      const isOneMin = game.timer_w === 60 || (game.timer_w === 15 && game.increment === 3); // 1min or 15s|3s
+
+      const winnerUpdates = [
+        "elo = ?", "wins = wins + 1", "games_played = games_played + 1"
+      ];
+      const loserUpdates = [
+        "elo = ?", "games_played = games_played + 1"
+      ];
+      const winnerParams = [winnerElo + change];
+      const loserParams = [loserElo - change];
+
+      if (isRandomSetup) {
+        winnerUpdates.push("games_random_setup = games_random_setup + 1");
+        loserUpdates.push("games_random_setup = games_random_setup + 1");
+      }
+      if (isFogOfWar) {
+        winnerUpdates.push("games_fog_of_war = games_fog_of_war + 1");
+        loserUpdates.push("games_fog_of_war = games_fog_of_war + 1");
+      }
+      if (isOneMin) {
+        winnerUpdates.push("games_1min = games_1min + 1");
+        loserUpdates.push("games_1min = games_1min + 1");
+      }
+
+      winnerParams.push(winnerId);
+      loserParams.push(loserId);
+
       if (game.is_rated) {
-        db.run("UPDATE users SET elo = ?, wins = wins + 1, games_played = games_played + 1 WHERE id = ?", [winnerElo + change, winnerId], () => updateUnlockedSkins(winnerId));
-        db.run("UPDATE users SET elo = ?, games_played = games_played + 1 WHERE id = ?", [loserElo - change, loserId], () => updateUnlockedSkins(loserId));
+        db.run(`UPDATE users SET ${winnerUpdates.join(", ")} WHERE id = ?`, winnerParams, () => updateUnlockedSkins(winnerId));
+        db.run(`UPDATE users SET ${loserUpdates.join(", ")} WHERE id = ?`, loserParams, () => updateUnlockedSkins(loserId));
       } else {
-        db.run("UPDATE users SET wins = wins + 1, games_played = games_played + 1 WHERE id = ?", [winnerId], () => updateUnlockedSkins(winnerId));
-        db.run("UPDATE users SET games_played = games_played + 1 WHERE id = ?", [loserId], () => updateUnlockedSkins(loserId));
+        // Just wins and games played (already in updates, but skip ELO)
+        const winUpdatesUnrated = winnerUpdates.filter(u => !u.includes("elo"));
+        const loseUpdatesUnrated = loserUpdates.filter(u => !u.includes("elo"));
+        db.run(`UPDATE users SET ${winUpdatesUnrated.join(", ")} WHERE id = ?`, winnerParams.slice(1), () => updateUnlockedSkins(winnerId));
+        db.run(`UPDATE users SET ${loseUpdatesUnrated.join(", ")} WHERE id = ?`, loserParams.slice(1), () => updateUnlockedSkins(loserId));
       }
 
       io.to(gameId).emit("game_update", {

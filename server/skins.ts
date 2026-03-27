@@ -29,43 +29,48 @@ export function getSkins() {
 
 export function updateUnlockedSkins(userId: number) {
   return new Promise<void>((resolve) => {
-    db.get("SELECT * FROM users WHERE id = ?", [userId], (err, user: any) => {
-      if (err || !user) return resolve();
+    db.all("SELECT id FROM users WHERE is_guest = 0 ORDER BY elo DESC", (err, leaderboard: any[]) => {
+      const rank = leaderboard ? leaderboard.findIndex(u => u.id === userId) + 1 : 100;
 
-      let unlockedSkins = JSON.parse(user.unlocked_skins || '["classic"]');
-      const allSkins = getSkins();
-      let updated = false;
+      db.get("SELECT * FROM users WHERE id = ?", [userId], (err, user: any) => {
+        if (err || !user) return resolve();
 
-      allSkins.forEach((skin: any) => {
-        if (unlockedSkins.includes(skin.id)) return;
+        let unlockedSkins = JSON.parse(user.unlocked_skins || '["classic"]');
+        const allSkins = getSkins();
+        let updated = false;
 
-        try {
-          // SECURE: Use a sandbox or a very restricted Function if possible
-          // For now, mirroring the existing logic but being aware of "Never trust frontend"
-          // This code runs on server, so it's only as secure as the files in skins/ folder.
-          const code = skin.requirementCode.replace(/export const/g, 'const');
-          const getExports = new Function(`${code}; return { checkUnlock };`);
-          const { checkUnlock } = getExports();
-          const isUnlocked = checkUnlock({
-            elo: user.elo,
-            wins: user.wins || 0,
-            gamesPlayed: user.games_played || 0
-          });
+        allSkins.forEach((skin: any) => {
+          if (unlockedSkins.includes(skin.id)) return;
 
-          if (isUnlocked) {
-            unlockedSkins.push(skin.id);
-            updated = true;
+          try {
+            const code = skin.requirementCode.replace(/export const/g, 'const');
+            const getExports = new Function(`${code}; return { checkUnlock };`);
+            const { checkUnlock } = getExports();
+            const isUnlocked = checkUnlock({
+              elo: user.elo,
+              wins: user.wins || 0,
+              gamesPlayed: user.games_played || 0,
+              games_random_setup: user.games_random_setup || 0,
+              games_1min: user.games_1min || 0,
+              games_fog_of_war: user.games_fog_of_war || 0,
+              leaderboardRank: rank
+            });
+
+            if (isUnlocked) {
+              unlockedSkins.push(skin.id);
+              updated = true;
+            }
+          } catch (e) {
+            // Skip
           }
-        } catch (e) {
-          // Skip
+        });
+
+        if (updated) {
+          db.run("UPDATE users SET unlocked_skins = ? WHERE id = ?", [JSON.stringify(unlockedSkins), userId], () => resolve());
+        } else {
+          resolve();
         }
       });
-
-      if (updated) {
-        db.run("UPDATE users SET unlocked_skins = ? WHERE id = ?", [JSON.stringify(unlockedSkins), userId], () => resolve());
-      } else {
-        resolve();
-      }
     });
   });
 }

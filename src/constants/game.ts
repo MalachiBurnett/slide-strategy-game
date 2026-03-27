@@ -25,8 +25,10 @@ export interface ThemeData {
     bgDark: string;
     text: string;
     primary: string;
+    primaryText: string;
     secondary: string;
     accent: string;
+    accentText: string;
     boardLight: string;
     boardDark: string;
     boardBorder: string;
@@ -43,8 +45,10 @@ export const THEMES: ThemeData[] = [
       bgDark: '#e3d9c6',
       text: '#4a3728',
       primary: '#8b4513',
+      primaryText: '#ffffff',
       secondary: '#6d3610',
       accent: '#d2b48c',
+      accentText: '#4a3728',
       boardLight: '#decba4',
       boardDark: '#bc9d6a',
       boardBorder: '#8b4513'
@@ -59,8 +63,10 @@ export const THEMES: ThemeData[] = [
       bgDark: '#0a0a0a',
       text: '#e0e0e0',
       primary: '#3a3a3a',
+      primaryText: '#ffffff',
       secondary: '#2a2a2a',
       accent: '#4a4a4a',
+      accentText: '#ffffff',
       boardLight: '#3d3d3d',
       boardDark: '#242424',
       boardBorder: '#000000'
@@ -75,8 +81,10 @@ export const THEMES: ThemeData[] = [
       bgDark: '#e0e0e0',
       text: '#000000',
       primary: '#2a2a2a',
+      primaryText: '#ffffff',
       secondary: '#4a4a4a',
       accent: '#6a6a6a',
+      accentText: '#ffffff',
       boardLight: '#f8f8f8',
       boardDark: '#e8e8e8',
       boardBorder: '#cccccc'
@@ -91,8 +99,10 @@ export const THEMES: ThemeData[] = [
       bgDark: '#f7edca',
       text: '#2c3e50',
       primary: '#1abc9c',
+      primaryText: '#ffffff',
       secondary: '#16a085',
       accent: '#f1c40f',
+      accentText: '#2c3e50',
       boardLight: '#ffeaa7',
       boardDark: '#fab1a0',
       boardBorder: '#e67e22'
@@ -107,8 +117,10 @@ export const THEMES: ThemeData[] = [
       bgDark: '#1c5980',
       text: '#ffffff',
       primary: '#2c3e50',
+      primaryText: '#ffffff',
       secondary: '#34495e',
       accent: '#f1c40f',
+      accentText: '#2c3e50',
       boardLight: '#3498db',
       boardDark: '#2980b9',
       boardBorder: '#2c3e50'
@@ -123,8 +135,10 @@ export const THEMES: ThemeData[] = [
       bgDark: '#ebebeb',
       text: '#4d4d4d',
       primary: '#00adef',
+      primaryText: '#ffffff',
       secondary: '#e0e0e0',
       accent: '#00adef',
+      accentText: '#ffffff',
       boardLight: '#ffffff',
       boardDark: '#f0f0f0',
       boardBorder: '#ebebeb'
@@ -139,8 +153,10 @@ export const THEMES: ThemeData[] = [
       bgDark: '#ffe4e1',
       text: '#4a3728',
       primary: '#ff69b4',
+      primaryText: '#ffffff',
       secondary: '#ffb6c1',
       accent: '#db7093',
+      accentText: '#ffffff',
       boardLight: '#ffffff',
       boardDark: '#ffe4e1',
       boardBorder: '#ff69b4'
