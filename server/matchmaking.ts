@@ -258,7 +258,7 @@ export function setupMatchmaking(io: Server) {
   });
 }
 
-function startGame(io: Server, p1Id: number, p2Id: number, p1SocketId: string, p2SocketId: string, timeControl: string, variant: string) {
+function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: string, socketIdW: string, timeControl: string, variant: string) {
   const gameId = Math.random().toString(36).substring(7);
   const board = generateBoard(variant);
   let initialTimer = 600;
@@ -266,13 +266,6 @@ function startGame(io: Server, p1Id: number, p2Id: number, p1SocketId: string, p
   if (timeControl === '1|0') initialTimer = 60;
   else if (timeControl === '3|2') { initialTimer = 180; increment = 2; }
   else if (timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
-
-  // Randomize who is White and who is Black
-  const isP1White = Math.random() < 0.5;
-  const userIdW = isP1White ? p1Id : p2Id;
-  const userIdB = isP1White ? p2Id : p1Id;
-  const socketIdW = isP1White ? p1SocketId : p2SocketId;
-  const socketIdB = isP1White ? p2SocketId : p1SocketId;
 
   db.all("SELECT id, username, skin FROM users WHERE id IN (?, ?)", [userIdW, userIdB], (err, users: any[]) => {
     const userW = users.find(u => u.id === userIdW);
