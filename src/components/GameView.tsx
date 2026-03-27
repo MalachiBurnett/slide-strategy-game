@@ -50,9 +50,11 @@ export const GameView: React.FC<GameViewProps> = ({
     if (gameState.variant !== 'fog_of_war' || gameState.status === 'finished') return null;
     
     const visible = new Set<string>();
+    const perspective = isLocal ? gameState.turn : playerColor;
+    
     gameState.board.forEach((row, r) => {
       row.forEach((piece, c) => {
-        if (piece === playerColor) {
+        if (piece === perspective) {
           visible.add(`${r},${c}`);
           const moves = getValidMoves(gameState.board, r, c);
           moves.forEach(m => visible.add(`${m.r},${m.c}`));
@@ -60,7 +62,7 @@ export const GameView: React.FC<GameViewProps> = ({
       });
     });
     return visible;
-  }, [gameState.board, gameState.variant, gameState.status, playerColor]);
+  }, [gameState.board, gameState.variant, gameState.status, playerColor, isLocal, gameState.turn]);
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex flex-col items-center justify-center p-4 font-sans transition-colors duration-500">

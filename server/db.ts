@@ -17,23 +17,35 @@ export function initializeDb() {
       db.run(`CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE,
+        email TEXT UNIQUE,
         password TEXT,
+        is_verified BOOLEAN DEFAULT 0,
+        verification_token TEXT,
         elo INTEGER DEFAULT 600,
         is_guest BOOLEAN DEFAULT 0,
         skin TEXT DEFAULT 'classic',
         theme TEXT DEFAULT 'wooden',
         unlocked_skins TEXT DEFAULT '["classic"]',
         wins INTEGER DEFAULT 0,
-        games_played INTEGER DEFAULT 0
+        games_played INTEGER DEFAULT 0,
+        games_random_setup INTEGER DEFAULT 0,
+        games_1min INTEGER DEFAULT 0,
+        games_fog_of_war INTEGER DEFAULT 0
       )`, (err) => { if (err) reject(err); });
 
       const userMigrations = [
+        { col: "email", type: "TEXT UNIQUE" },
+        { col: "is_verified", type: "BOOLEAN DEFAULT 0" },
+        { col: "verification_token", type: "TEXT" },
         { col: "is_guest", type: "BOOLEAN DEFAULT 0" },
         { col: "skin", type: "TEXT DEFAULT 'classic'" },
         { col: "theme", type: "TEXT DEFAULT 'wooden'" },
         { col: "unlocked_skins", type: "TEXT DEFAULT '[\"classic\"]'" },
         { col: "wins", type: "INTEGER DEFAULT 0" },
-        { col: "games_played", type: "INTEGER DEFAULT 0" }
+        { col: "games_played", type: "INTEGER DEFAULT 0" },
+        { col: "games_random_setup", type: "INTEGER DEFAULT 0" },
+        { col: "games_1min", type: "INTEGER DEFAULT 0" },
+        { col: "games_fog_of_war", type: "INTEGER DEFAULT 0" }
       ];
 
       userMigrations.forEach(m => {
