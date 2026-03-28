@@ -1,5 +1,20 @@
-<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="50" cy="50" r="45" fill="#eee" stroke="#ccc" stroke-width="2" />
-  <circle cx="50" cy="50" r="25" fill="#333" />
-  <text x="50" y="60" font-family="Arial" font-size="30" font-weight="bold" fill="#fff" text-anchor="middle">A</text>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="-2 -2 36 36" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<defs>
+    <radialGradient id="button_diffuse_gradient" cx="0.4" cy="0.4" r="0.5" fx="0.66" fy="0.66">
+        <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0.396"/>
+    </radialGradient>
+    <linearGradient id="button_shiny_specular_gradient" x1="0.333" y1="0.4" x2="0.666" y2="0.5">
+        <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+        <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+</defs>
+<g>
+    <circle cx="15.75" cy="15.75" r="15" opacity="0.333" fill="#000" stroke-width="1" stroke="#000" />
+    <circle cx="15" cy="15" r="15" fill="#d0d4d6" stroke-width="0.4" stroke="#cbcacf" />
+    <circle cx="16" cy="16.5" r="14" fill="url(#button_diffuse_gradient)" />
+    <path d="M 2,20 a 14.25,14.25 0,0,1 22,-16 z" fill="url(#button_shiny_specular_gradient)" />
+    <text x="15" y="15" font-size="15px" font-family="Arial, sans-serif" fill="#909090" text-anchor="middle" dominant-baseline="central">A</text>
+</g>
 </svg>
