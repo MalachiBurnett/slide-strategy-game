@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User } from 'lucide-react';
+import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart } from 'lucide-react';
 import { UserData, LeaderboardEntry, Turn } from '../types/game';
 
 interface LobbyViewProps {
@@ -18,7 +18,7 @@ interface LobbyViewProps {
   showTutorial: boolean;
   setShowTutorial: (show: boolean) => void;
   setUser: (user: UserData | null) => void;
-  setView: (view: 'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'profile') => void;
+  setView: (view: 'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'profile' | 'credits') => void;
   handleLogout: () => void;
   startPublicMatch: () => void;
   startLocalMatch: () => void;
@@ -142,6 +142,13 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               className="px-6 py-3 bg-[var(--primary)] text-[var(--primaryText)] rounded-xl shadow-lg hover:scale-105 transition-all font-black"
             >
               Skins
+            </button>
+            <button 
+              onClick={() => setView('credits')}
+              className="p-2 sm:p-3 bg-[var(--bgLight)] rounded-full shadow-md hover:shadow-lg transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-20"
+              title="Credits"
+            >
+              <Heart className="w-5 h-5 sm:w-6 h-6" />
             </button>
             <div className="text-right flex flex-col items-end">
               <button 

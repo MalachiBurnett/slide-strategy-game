@@ -9,6 +9,7 @@ import { QueueView } from './components/QueueView';
 import { GameView } from './components/GameView';
 import { CosmeticsView } from './components/CosmeticsView';
 import { ProfileView, ResetPasswordView } from './components/ProfileView';
+import { CreditsView } from './components/CreditsView';
 import { Mail, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -108,7 +109,7 @@ const VerifyView: React.FC<{ token: string, mode: 'auth' | 'email-change', onDon
 
 export default function App() {
   const [user, setUser] = useState<UserData | null>(null);
-  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify' | 'profile' | 'reset-password'>('auth');
+  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify' | 'profile' | 'reset-password' | 'credits'>('auth');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -656,6 +657,14 @@ export default function App() {
         isWinScreenHidden={isWinScreenHidden}
         setIsWinScreenHidden={setIsWinScreenHidden}
         startPublicMatch={startPublicMatch}
+      />
+    );
+  }
+
+  if (view === 'credits') {
+    return (
+      <CreditsView 
+        onBack={() => setView('lobby')}
       />
     );
   }
