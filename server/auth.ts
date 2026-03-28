@@ -318,4 +318,33 @@ router.post("/report", (req, res) => {
   }
 });
 
+router.post("/resend-verification-email", (req, res) => {
+  const { usernameOrEmail } = req.body;
+  if (!usernameOrEmail) return res.status(400).json({ error: "Username or email required" });
+
+  db.get("SELECT * FROM users WHERE username = ? OR email = ?", [usernameOrEmail, usernameOrEmail], async (err, user: any) => {
+    if (!user || user.is_guest || user.is_verified) {
+      return res.json({ success: true, message: "If an account exists and needs verification, an email has been sent." });
+    }
+    
+    const token = user.verification_token || require('uuid').v4();
+    if (!user.verification_token) {
+      db.run("UPDATE users SET verification_token = ? WHERE id = ?", [token, user.id]);
+    }
+    
+    try {
+      await resend.emails.send({
+        from: "verify@slide.wiizardsoftware.uk",
+        to: user.email,
+        subject: "Verify your Slide account",
+        html: `<p>Hello ${user.username},</p><p>Please verify your email by clicking the link below:</p><p><a href="https://slide.wiizardsoftware.uk/verify/${token}">Verify Email</a></p>`
+      });
+      res.json({ success: true, message: "Verification email sent!" });
+    } catch (sendErr) {
+      console.error("Email send error:", sendErr);
+      res.status(500).json({ error: "Failed to send verification email" });
+    }
+  });
+});
+
 export default router;
