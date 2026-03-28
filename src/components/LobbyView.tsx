@@ -210,7 +210,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                       'classic': 'Classic',
                       'fog_of_war': 'Fog of War',
                       'random_setup': 'Random',
-                      'schizophrenic': 'Schizo'
+                      'schizophrenic': 'Schizophrenic'
                     };
                     return (
                       <button
@@ -531,7 +531,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-12 bg-[var(--primary)] p-8 rounded-3xl shadow-xl border-b-8 border-[var(--secondary)] text-[var(--bg)]"
+          className="mt-12 bg-[var(--primary)] p-8 rounded-3xl shadow-xl border-b-8 border-[var(--secondary)] text-[var(--bg)] md:col-span-2"
         >
           <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
             <Trophy className="w-6 h-6" />
