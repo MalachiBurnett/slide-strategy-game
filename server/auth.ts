@@ -74,6 +74,35 @@ router.post("/profile/username", (req, res) => {
   });
 });
 
+router.post("/request-password-reset", (req, res) => {
+  const { usernameOrEmail } = req.body;
+  if (!usernameOrEmail) return res.status(400).json({ error: "Username or email required" });
+
+  db.get("SELECT * FROM users WHERE username = ? OR email = ?", [usernameOrEmail, usernameOrEmail], async (err, user: any) => {
+    if (!user || user.is_guest) {
+      // Don't reveal whether the account exists or is a guest
+      return res.json({ success: true, message: "If an account exists, a reset email has been sent." });
+    }
+    
+    const token = uuidv4();
+    db.run("UPDATE users SET password_reset_token = ? WHERE id = ?", [token, user.id]);
+    
+    try {
+      await resend.emails.send({
+        from: "security@slide.wiizardsoftware.uk",
+        to: user.email,
+        subject: "Slide Password Reset",
+        html: `<p>Hello ${user.username},</p><p>Click the link below to reset your password:</p><p><a href="https://slide.wiizardsoftware.uk/reset-password/${token}">Reset Password</a></p>`
+      });
+      // Always return success message to avoid account enumeration
+      res.json({ success: true, message: "If an account exists, a reset email has been sent." });
+    } catch (e) {
+      // Still return success to avoid revealing email send failures
+      res.json({ success: true, message: "If an account exists, a reset email has been sent." });
+    }
+  });
+});
+
 router.post("/profile/password-reset-request", (req, res) => {
   const userId = (req.session as any).userId;
   if (!userId) return res.status(401).json({ error: "Not logged in" });
