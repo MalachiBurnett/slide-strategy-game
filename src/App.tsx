@@ -716,6 +716,7 @@ export default function App() {
         setIsWinScreenHidden={setIsWinScreenHidden}
         startPublicMatch={startPublicMatch}
         error={error}
+        isRated={isRated}
       />
     );
   }
