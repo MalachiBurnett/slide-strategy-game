@@ -99,32 +99,6 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     return (Object.values(queueCounts[vId]) as number[]).reduce((a, b) => a + b, 0);
   };
 
-  const VariantSelector = () => (
-    <div className="flex flex-wrap gap-2 mb-6">
-      {variants.map((v) => {
-        const count = getQueueCountForVariant(v.id);
-        return (
-          <button
-            key={v.id}
-            onClick={() => setVariant(v.id)}
-            className={`px-4 py-2 rounded-xl text-xs font-black transition-all border-2 flex items-center gap-2 ${variant === v.id ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'bg-[var(--bg)] text-[var(--text)] border-[var(--primary)] border-opacity-30 hover:border-opacity-100'}`}
-            title={v.desc}
-          >
-            {v.name}
-            {count > 0 && (
-              <span className="bg-red-500 text-white px-1.5 py-0.5 rounded-full text-[10px]">
-                {count}
-              </span>
-            )}
-            {count === 0 && (
-               <span className="opacity-20 text-[10px]">0</span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-
   return (
     <div className="min-h-screen bg-[var(--bg)] p-4 sm:p-8 font-sans text-[var(--text)] transition-colors duration-500">
       <div className="max-w-4xl mx-auto">
@@ -188,6 +162,24 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             
             <div className="space-y-4">
               <div>
+                <p className="text-sm font-bold text-[var(--primary)] mb-3 uppercase tracking-wide">Match Type</p>
+                <div className="bg-[var(--bg)] p-1 rounded-xl flex gap-1">
+                  <button
+                    onClick={() => !isRated && toggleRated()}
+                    className={`flex-1 py-2 rounded-lg text-xs font-black transition-all ${isRated ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'opacity-40 hover:opacity-100'}`}
+                  >
+                    RANKED
+                  </button>
+                  <button
+                    onClick={() => isRated && toggleRated()}
+                    className={`flex-1 py-2 rounded-lg text-xs font-black transition-all ${!isRated ? 'bg-[var(--accent)] text-[var(--accentText)] shadow-lg' : 'opacity-40 hover:opacity-100'}`}
+                  >
+                    CASUAL
+                  </button>
+                </div>
+              </div>
+
+              <div>
                 <p className="text-sm font-bold text-[var(--primary)] mb-3 uppercase tracking-wide">Time Control</p>
                 <div className="bg-[var(--bg)] p-2 rounded-xl flex gap-2">
                   {(['0.25|3', '3|2', '1|0'] as const).map((tc) => (
@@ -212,13 +204,15 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                       'random_setup': 'Random',
                       'schizophrenic': 'Schizophrenic'
                     };
+                    const count = getQueueCountForVariant(v);
                     return (
                       <button
                         key={v}
                         onClick={() => setVariant(v)}
-                        className={`px-3 py-1.5 text-xs sm:text-sm rounded-lg font-bold transition-all ${variant === v ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'bg-[var(--bg)] text-[var(--text)] opacity-60 hover:opacity-100'}`}
+                        className={`px-3 py-1.5 text-xs sm:text-sm rounded-lg font-bold transition-all flex items-center gap-2 ${variant === v ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'bg-[var(--bg)] text-[var(--text)] opacity-60 hover:opacity-100'}`}
                       >
                         {variantNames[v]}
+                        {count > 0 && <span className="bg-red-500 text-white px-1 rounded-full text-[8px]">{count}</span>}
                       </button>
                     );
                   })}
@@ -235,7 +229,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               <Play className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)] fill-current" />
             </div>
             <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Public Match</h2>
-            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Match against players within ±200 ELO range.</p>
+            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Match against global players instantly.</p>
             <button 
               onClick={startPublicMatch}
               className="w-full py-3 sm:py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--primary)]/20"
@@ -343,24 +337,6 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               <div className="bg-[var(--primary)] text-[var(--primaryText)] p-6 rounded-2xl text-4xl font-mono font-black tracking-widest mb-6 shadow-xl">
                 {privateCode}
               </div>
-              <div className="mb-8 p-4 bg-[var(--primary)] bg-opacity-10 rounded-2xl border-2 border-[var(--primary)] border-opacity-20">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="text-left">
-                    <p className="font-black text-sm text-[var(--primaryText)]">Match Type</p>
-                    <p className="opacity-60 text-xs text-[var(--primaryText)]">Rated games affect ELO</p>
-                  </div>
-                  <button 
-                    onClick={toggleRated}
-                    className={`relative w-14 h-8 rounded-full transition-colors duration-200 focus:outline-none ${isRated ? 'bg-[var(--boardLight)]' : 'bg-[var(--boardDark)]'}`}
-                  >
-                    <div className={`absolute top-1 left-1 bg-white w-6 h-6 rounded-full transition-transform duration-200 transform ${isRated ? 'translate-x-6' : 'translate-x-0'}`} />
-                  </button>
-                </div>
-                <div className="mt-2 text-center">
-                   <span className={`font-black text-lg uppercase tracking-wider text-[var(--primaryText)]`}>{isRated ? 'Rated' : 'Unrated'}</span>
-                </div>
-              </div>
-
               <p className="text-sm text-[var(--primary)] font-bold animate-pulse mb-4">Waiting for opponent...</p>
               <button 
                 onClick={() => { setPrivateCode(null); setGameId(null); setPlayerColor(null); }}

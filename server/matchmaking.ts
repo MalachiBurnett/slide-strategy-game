@@ -7,7 +7,7 @@ const socketToUser = new Map<string, number>();
 const socketToGame = new Map<string, string>();
 const userToGame = new Map<number, string>(); // userId -> gameId
 const activeTimers = new Map<string, {timerW: number, timerB: number, turn: string, increment: number, lastMoveTime: number}>();
-const publicQueue: {userId: number, elo: number, socketId: string, timeControl: string, variant: string}[] = [];
+const publicQueue: {userId: number, elo: number, socketId: string, timeControl: string, variant: string, isRated: boolean}[] = [];
 const privateGames = new Map<string, string>(); // code -> gameId
 const spectators = new Map<string, Set<number>>(); // gameId -> Set of spectator userIds
 const spectatorSessions = new Map<string, {spectatorId: number, targetUsername: string, gameId: string | null}>(); // socketId -> spectator session
@@ -168,7 +168,8 @@ export function setupMatchmaking(io: Server) {
               skinB: game.skin_b,
               variant: game.variant,
               board: JSON.parse(game.board),
-              turn: timerData?.turn || game.turn
+              turn: timerData?.turn || game.turn,
+              isRated: !!game.is_rated
             }
           });
           
@@ -177,21 +178,25 @@ export function setupMatchmaking(io: Server) {
       });
     });
 
-    socket.on("join_queue", (data: {userId: number, elo: number, timeControl: string, variant: string}) => {
+    socket.on("join_queue", (data: {userId: number, elo: number, timeControl: string, variant: string, isRated: boolean}) => {
       db.get("SELECT is_banned FROM users WHERE id = ?", [data.userId], (err, user: any) => {
         if (err || !user || user.is_banned) {
           return socket.emit("error", "You are banned from playing public matches. Change your name to appeal.");
         }
         
         socketToUser.set(socket.id, data.userId);
-        const matchIdx = publicQueue.findIndex(q => q.timeControl === data.timeControl && q.variant === data.variant && Math.abs(q.elo - data.elo) <= 200);
+        const matchIdx = publicQueue.findIndex(q => 
+          q.timeControl === data.timeControl && 
+          q.variant === data.variant && 
+          q.isRated === data.isRated
+        );
         
         if (matchIdx !== -1) {
           const opponent = publicQueue.splice(matchIdx, 1)[0];
           broadcastQueueCounts();
-          startGame(io, data.userId, opponent.userId, opponent.socketId, socket.id, data.timeControl, data.variant || 'classic');
+          startGame(io, data.userId, opponent.userId, opponent.socketId, socket.id, data.timeControl, data.variant || 'classic', data.isRated);
         } else {
-          publicQueue.push({ userId: data.userId, elo: data.elo, socketId: socket.id, timeControl: data.timeControl, variant: data.variant || 'classic' });
+          publicQueue.push({ userId: data.userId, elo: data.elo, socketId: socket.id, timeControl: data.timeControl, variant: data.variant || 'classic', isRated: data.isRated });
           broadcastQueueCounts();
         }
       });
@@ -205,7 +210,7 @@ export function setupMatchmaking(io: Server) {
       }
     });
 
-    socket.on("create_private", (data: {userId: number, timeControl: string, variant: string}) => {
+    socket.on("create_private", (data: {userId: number, timeControl: string, variant: string, isRated: boolean}) => {
       db.get("SELECT skin FROM users WHERE id = ?", [data.userId], (err, user: any) => {
         socketToUser.set(socket.id, data.userId);
         const words = ["APPLE", "BREAD", "CHESS", "DREAM", "EAGLE", "FLAME", "GRAPE", "HOUSE", "IMAGE", "JOKER"];
@@ -221,15 +226,15 @@ export function setupMatchmaking(io: Server) {
         else if (data.timeControl === '3|2') { initialTimer = 180; increment = 2; }
         else if (data.timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
 
-        db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant, skin_w) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [gameId, board, 'W', data.userId, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variant, skinW]);
+        db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant, skin_w, is_rated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [gameId, board, 'W', data.userId, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variant, skinW, data.isRated ? 1 : 0]);
         
         // Track game for spectating even if waiting
         userToGame.set(data.userId, gameId);
         
         privateGames.set(code, gameId);
         socket.join(gameId);
-        socket.emit("private_created", { code, gameId, timerW: initialTimer, timerB: initialTimer, variant });
+        socket.emit("private_created", { code, gameId, color: 'W', timerW: initialTimer, timerB: initialTimer, variant, isRated: data.isRated });
       });
     });
 
@@ -269,7 +274,7 @@ export function setupMatchmaking(io: Server) {
 
             // To joiner: set color to B
             socket.emit("match_found", { 
-              gameId, color: 'B', opponentName: userW?.username, timerW: game.timer_w, timerB: game.timer_b, skinW, skinB, variant: game.variant, board: JSON.parse(game.board)
+              gameId, color: 'B', opponentName: userW?.username, timerW: game.timer_w, timerB: game.timer_b, skinW, skinB, variant: game.variant, board: JSON.parse(game.board), isRated: !!game.is_rated
             });
             // To creator: set color to W (creator is already in room)
             socket.to(gameId).emit("join_private_success", { 
@@ -280,7 +285,8 @@ export function setupMatchmaking(io: Server) {
               variant: game.variant, 
               board: JSON.parse(game.board),
               timerW: game.timer_w,
-              timerB: game.timer_b
+              timerB: game.timer_b,
+              isRated: !!game.is_rated
             });
           });
         });
@@ -345,7 +351,8 @@ export function setupMatchmaking(io: Server) {
               timerB: timerData.timerB, 
               variant: game.variant,
               skinW: game.skin_w,
-              skinB: game.skin_b
+              skinB: game.skin_b,
+              isRated: !!game.is_rated
             });
           }
         }
@@ -440,7 +447,8 @@ export function setupMatchmaking(io: Server) {
                 timerW: activeTimers.get(targetGameId)?.timerW || game.timer_w,
                 timerB: activeTimers.get(targetGameId)?.timerB || game.timer_b,
                 playerWUsername: userW?.username || 'Player W',
-                playerBUsername: userB?.username || 'Player B'
+                playerBUsername: userB?.username || 'Player B',
+                isRated: !!game.is_rated
               }
             });
           });
@@ -474,7 +482,7 @@ export function setupMatchmaking(io: Server) {
   });
 }
 
-function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: string, socketIdW: string, timeControl: string, variant: string) {
+function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: string, socketIdW: string, timeControl: string, variant: string, isRated: boolean) {
   const gameId = Math.random().toString(36).substring(7);
   const board = generateBoard(variant);
   let initialTimer = 600;
@@ -489,8 +497,8 @@ function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: stri
     const skinW = userW?.skin || 'classic';
     const skinB = userB?.skin || 'classic';
 
-    db.run("INSERT INTO games (id, board, turn, player_w, player_b, status, timer_w, timer_b, increment, last_move_time, variant, skin_w, skin_b) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [gameId, JSON.stringify(board), 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant, skinW, skinB]);
+    db.run("INSERT INTO games (id, board, turn, player_w, player_b, status, timer_w, timer_b, increment, last_move_time, variant, skin_w, skin_b, is_rated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [gameId, JSON.stringify(board), 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant, skinW, skinB, isRated ? 1 : 0]);
 
     // Track active games for spectating
     userToGame.set(userIdW, gameId);
@@ -501,10 +509,10 @@ function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: stri
     notifyWaitingSpectators(io, gameId, userIdW, userIdB);
 
     io.to(socketIdW).emit("match_found", { 
-      gameId, color: 'W', opponentName: userB?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant, board 
+      gameId, color: 'W', opponentName: userB?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant, board, isRated 
     });
     io.to(socketIdB).emit("match_found", { 
-      gameId, color: 'B', opponentName: userW?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant, board 
+      gameId, color: 'B', opponentName: userW?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant, board, isRated 
     });
   });
 }
@@ -541,7 +549,8 @@ function handleGameEnd(io: Server, gameId: string, winner: string | null, reason
         timerB: finalTimers?.timerB || game.timer_b,
         skinW: game.skin_w,
         skinB: game.skin_b,
-        variant: game.variant
+        variant: game.variant,
+        isRated: !!game.is_rated
       });
     };
 

@@ -193,8 +193,10 @@ export default function App() {
           winner: null,
           skinW: data.skinW,
           skinB: data.skinB,
-          variant: data.variant
+          variant: data.variant,
+          isRated: data.isRated
         });
+        setIsRated(data.isRated);
         setView('game');
       }
     });
@@ -296,13 +298,15 @@ export default function App() {
       skinW: Skin,
       skinB: Skin,
       variant: string,
-      board: string[][]
+      board: string[][],
+      isRated: boolean
     }) => {
       setGameId(data.gameId);
       setPlayerColor(data.color);
       setOpponentName(data.opponentName || 'Opponent');
       setTimerW(data.timerW || null);
       setTimerB(data.timerB || null);
+      setIsRated(data.isRated);
       socket.emit('join_game', data.gameId);
       setGameState({ 
         board: data.board, 
@@ -311,18 +315,20 @@ export default function App() {
         winner: null,
         skinW: data.skinW,
         skinB: data.skinB,
-        variant: data.variant
+        variant: data.variant,
+        isRated: data.isRated
       });
       setView('game');
       setPrivateCode(null);
     });
 
-    socket.on('private_created', (data: { code: string, gameId: string, timerW?: number, timerB?: number, variant: string }) => {
+    socket.on('private_created', (data: { code: string, gameId: string, color: Turn, timerW?: number, timerB?: number, variant: string, isRated: boolean }) => {
       setPrivateCode(data.code);
       setGameId(data.gameId);
-      setPlayerColor('W');
+      setPlayerColor(data.color);
       setTimerW(data.timerW || null);
       setTimerB(data.timerB || null);
+      setIsRated(data.isRated);
       socket.emit('join_game', data.gameId);
     });
 
@@ -334,11 +340,13 @@ export default function App() {
       variant: string,
       board: string[][],
       timerW?: number,
-      timerB?: number
+      timerB?: number,
+      isRated: boolean
     }) => {
       setOpponentName(data.opponentName);
       setTimerW(data.timerW || null);
       setTimerB(data.timerB || null);
+      setIsRated(data.isRated);
       setGameState({ 
         board: data.board, 
         turn: 'W', 
@@ -348,7 +356,8 @@ export default function App() {
         skinB: data.skinB,
         variant: data.variant,
         timerW: data.timerW,
-        timerB: data.timerB
+        timerB: data.timerB,
+        isRated: data.isRated
       });
       setView('game');
       setPrivateCode(null);
@@ -356,12 +365,16 @@ export default function App() {
 
     socket.on('private_rated_updated', (isRated: boolean) => {
       setIsRated(isRated);
+      if (gameState) {
+        setGameState({ ...gameState, isRated });
+      }
     });
 
     socket.on('game_update', (data: GameState) => {
       setGameState(data);
       if (data.timerW !== undefined) setTimerW(data.timerW);
       if (data.timerB !== undefined) setTimerB(data.timerB);
+      if (data.isRated !== undefined) setIsRated(data.isRated);
     });
 
     socket.on('timer_update', (data: { timerW: number, timerB: number }) => {
@@ -404,7 +417,7 @@ export default function App() {
       socket.off('player_disconnected');
       socket.off('player_reconnected');
     };
-  }, [user?.id]);
+  }, [user?.id, gameState]);
 
   useEffect(() => {
     if (gameState?.status === 'finished' && user && !isLocal) {
@@ -488,7 +501,7 @@ export default function App() {
     setOpponentName(null);
     setTimerW(null);
     setTimerB(null);
-    socket.emit('join_queue', { userId: user.id, elo: user.elo, timeControl, variant });
+    socket.emit('join_queue', { userId: user.id, elo: user.elo, timeControl, variant, isRated });
     setView('queue');
     setError('');
   };
@@ -501,7 +514,7 @@ export default function App() {
 
   const createPrivateMatch = () => {
     if (!user) return;
-    socket.emit('create_private', { userId: user.id, timeControl, variant });
+    socket.emit('create_private', { userId: user.id, timeControl, variant, isRated });
   };
 
   const joinPrivateMatch = () => {
@@ -510,8 +523,11 @@ export default function App() {
   };
 
   const toggleRated = () => {
-    if (!gameId) return;
-    socket.emit('toggle_private_rated', { gameId, isRated: !isRated });
+    if (view === 'game' && gameId && gameId !== 'local') {
+      socket.emit('toggle_private_rated', { gameId, isRated: !isRated });
+    } else {
+      setIsRated(!isRated);
+    }
   };
 
   const startLocalMatch = () => {
@@ -699,6 +715,7 @@ export default function App() {
         isWinScreenHidden={isWinScreenHidden}
         setIsWinScreenHidden={setIsWinScreenHidden}
         startPublicMatch={startPublicMatch}
+        error={error}
       />
     );
   }

@@ -161,5 +161,23 @@ export const THEMES: ThemeData[] = [
       boardDark: '#f9a8d4', // Lighter pink
       boardBorder: '#9f1239'
     }
+  },
+  { 
+    id: 'sonic', 
+    name: 'Green Hill Zone', 
+    colors: {
+      bg: '#87ceeb', // Sky blue
+      bgLight: '#ffffff',
+      bgDark: '#5dade2',
+      text: '#2c3e50',
+      primary: '#228b22', // Forest green
+      primaryText: '#ffffff',
+      secondary: '#1e6b1e',
+      accent: '#32cd32', // Lime green
+      accentText: '#ffffff',
+      boardLight: '#cd853f', // Peru (brown)
+      boardDark: '#8b4513', // Saddle brown (darker brown)
+      boardBorder: '#32cd32' // Lime green
+    }
   }
 ];
