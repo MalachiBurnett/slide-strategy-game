@@ -1,0 +1,18 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- White/Outer part of eye -->
+  <circle cx="50" cy="50" r="45" fill="#f5e6d3" stroke="#a0826d" stroke-width="2"/>
+  
+  <!-- Iris (light brown) -->
+  <circle cx="50" cy="50" r="28" fill="#c4946e" stroke="#a0826d" stroke-width="1"/>
+  
+  <!-- Pupil (dark brown) -->
+  <circle cx="50" cy="50" r="16" fill="#5d4a42" stroke="#3e3936" stroke-width="1"/>
+  
+  <!-- Shine/highlight -->
+  <circle cx="43" cy="42" r="6" fill="#ffffff" opacity="0.8"/>
+  <circle cx="46" cy="46" r="2" fill="#ffffff" opacity="0.6"/>
+  
+  <!-- Subtle eyelids to give it personality -->
+  <path d="M 20 50 Q 50 30, 80 50" fill="none" stroke="#dcc6b3" stroke-width="1.5" opacity="0.6"/>
+  <path d="M 20 50 Q 50 70, 80 50" fill="none" stroke="#dcc6b3" stroke-width="1.5" opacity="0.6"/>
+</svg>

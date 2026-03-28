@@ -1,3 +1,6 @@
 {
-  "checkUnlock": "user.spectators_count >= 5"
+  "unlockRequirement": "Spectate 5 unique players to unlock",
+  "checkUnlock": "user.spectators_count >= 5",
+  "progress": "user.spectators_count",
+  "progressMax": "5"
 }
