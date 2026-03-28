@@ -177,6 +177,29 @@ export default function App() {
     });
   }, [user?.theme]);
 
+  const checkReconnect = useCallback((userId: number) => {
+    socket.emit('check_reconnect', { userId }, (response: any) => {
+      if (response.inGame) {
+        const data = response.gameData;
+        setGameId(data.gameId);
+        setPlayerColor(data.color);
+        setOpponentName(data.opponentName);
+        setTimerW(data.timerW);
+        setTimerB(data.timerB);
+        setGameState({
+          board: data.board,
+          turn: data.turn,
+          status: 'active',
+          winner: null,
+          skinW: data.skinW,
+          skinB: data.skinB,
+          variant: data.variant
+        });
+        setView('game');
+      }
+    });
+  }, []);
+
   // Auth Functions
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,6 +218,7 @@ export default function App() {
       if (authMode === 'login') {
         setUser(data);
         setView('lobby');
+        checkReconnect(data.id);
       } else {
         setAuthMode('login');
         setError('Registration successful! Please check your email (and junk/spam folder) to verify your account.');
@@ -210,6 +234,7 @@ export default function App() {
     if (res.ok) {
       setUser(data);
       setView('lobby');
+      checkReconnect(data.id);
     }
   };
 
@@ -225,11 +250,12 @@ export default function App() {
       const data = await res.json();
       setUser(data);
       if (view === 'auth') setView('lobby');
+      checkReconnect(data.id);
     } else {
       setUser(null);
       if (view !== 'auth' && view !== 'verify') setView('auth');
     }
-  }, [view]);
+  }, [view, checkReconnect]);
 
   useEffect(() => {
     checkMe();
@@ -355,6 +381,18 @@ export default function App() {
       setError(msg);
     });
 
+    socket.on('player_disconnected', (data: { userId: number, timeout: number }) => {
+      if (data.userId !== user?.id) {
+        setError(`Opponent disconnected. They have ${Math.ceil(data.timeout)}s to reconnect.`);
+      }
+    });
+
+    socket.on('player_reconnected', (data: { userId: number }) => {
+      if (data.userId !== user?.id) {
+        setError('');
+      }
+    });
+
     return () => {
       socket.off('match_found');
       socket.off('private_created');
@@ -363,8 +401,10 @@ export default function App() {
       socket.off('online_count');
       socket.off('queue_counts');
       socket.off('error');
+      socket.off('player_disconnected');
+      socket.off('player_reconnected');
     };
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     if (gameState?.status === 'finished' && user && !isLocal) {
