@@ -48,7 +48,8 @@ export function initializeDb() {
         { col: "games_fog_of_war", type: "INTEGER DEFAULT 0" },
         { col: "is_banned", type: "BOOLEAN DEFAULT 0" },
         { col: "password_reset_token", type: "TEXT" },
-        { col: "new_email", type: "TEXT" }
+        { col: "new_email", type: "TEXT" },
+        { col: "spectators_count", type: "INTEGER DEFAULT 0" }
       ];
 
       userMigrations.forEach(m => {
@@ -101,6 +102,12 @@ export function initializeDb() {
           }
         });
       });
+
+      db.run(`CREATE TABLE IF NOT EXISTS spectating (
+        spectator_id INTEGER,
+        target_player_id INTEGER,
+        PRIMARY KEY (spectator_id, target_player_id)
+      )`, (err) => { if (err) reject(err); });
 
       resolve();
     });
