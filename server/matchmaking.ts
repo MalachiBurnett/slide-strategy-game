@@ -311,7 +311,7 @@ export function setupMatchmaking(io: Server) {
             [data.spectatorId, targetUser.id], (err) => {
               if (!err) {
                 // Update spectators_spectated_count (for the spectator, not the target)
-                db.run("SELECT COUNT(*) as count FROM spectating WHERE spectator_id = ?", 
+                db.get("SELECT COUNT(*) as count FROM spectating WHERE spectator_id = ?", 
                   [data.spectatorId], (err, result: any) => {
                     if (result) {
                       db.run("UPDATE users SET spectators_count = ? WHERE id = ?", 
