@@ -6,7 +6,7 @@ import { Resend } from "resend";
 import { v4 as uuidv4 } from "uuid";
 
 const router = express.Router();
-const resend = new Resend("re_GKiAm1ZA_FR6THpnvaNp4fLBmiEMj3g5b");
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 router.get("/leaderboard", (req, res) => {
   db.all("SELECT id, username, elo FROM users WHERE is_guest = 0 ORDER BY elo DESC LIMIT 10", (err, rows) => {

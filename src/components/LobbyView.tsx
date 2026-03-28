@@ -136,19 +136,6 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               <span className="text-sm opacity-80 font-bold">{onlineCount} Online</span>
             </div>
           </div>
-          <div className="flex flex-col items-center gap-4">
-            <div className="bg-[var(--primary)] bg-opacity-10 p-1 text-[var(--primaryText)] rounded-xl shadow-md border-b-2 border-[var(--primary)] border-opacity-20 flex gap-1">
-              {(['0.25|3', '3|2', '1|0'] as const).map((tc) => (
-                <button
-                  key={tc}
-                  onClick={() => setTimeControl(tc)}
-                  className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${timeControl === tc ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'text-[var(--primaryText)] opacity-60 hover:opacity-100 hover:text-[var(--primaryText)]'}`}
-                >
-                  {tc === '0.25|3' ? '15s|3s' : tc === '3|2' ? '3|2' : '1 min'}
-                </button>
-              ))}
-            </div>
-          </div>
           <div className="flex items-center gap-4 sm:gap-6">
             <button 
               onClick={() => { fetchLeaderboard(); setShowLeaderboard(true); }}
@@ -189,15 +176,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           </div>
           </header>
 
-          <div className="bg-[var(--bgLight)] p-6 rounded-3xl shadow-lg mb-8 border-b-4 border-[var(--primary)] border-opacity-20">
-          <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-            <Zap className="w-5 h-5 text-[var(--primary)]" />
-            Select Variant
-          </h3>
-          <VariantSelector />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50"
@@ -253,7 +232,57 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
           <motion.div 
             whileHover={{ scale: 1.02 }}
-            className="bg-[var(--bg)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50 md:col-span-3"
+            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--primary)] border-opacity-50"
+          >
+            <div className="bg-[var(--primary)] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
+              <Zap className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)]" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold mb-6">Game Settings</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-bold text-[var(--primary)] mb-3 uppercase tracking-wide">Time Control</p>
+                <div className="bg-[var(--bg)] p-2 rounded-xl flex gap-2">
+                  {(['0.25|3', '3|2', '1|0'] as const).map((tc) => (
+                    <button
+                      key={tc}
+                      onClick={() => setTimeControl(tc)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs sm:text-sm font-black transition-all ${timeControl === tc ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'text-[var(--text)] opacity-60 hover:opacity-100'}`}
+                    >
+                      {tc === '0.25|3' ? '15s|3s' : tc === '3|2' ? '3m|2s' : '1m'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-bold text-[var(--primary)] mb-3 uppercase tracking-wide">Game Variant</p>
+                <div className="flex flex-wrap gap-2">
+                  {['classic', 'fog_of_war', 'random_setup', 'schizophrenic'].map((v) => {
+                    const variantNames: Record<string, string> = {
+                      'classic': 'Classic',
+                      'fog_of_war': 'Fog of War',
+                      'random_setup': 'Random',
+                      'schizophrenic': 'Schizo'
+                    };
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => setVariant(v)}
+                        className={`px-3 py-1.5 text-xs sm:text-sm rounded-lg font-bold transition-all ${variant === v ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'bg-[var(--bg)] text-[var(--text)] opacity-60 hover:opacity-100'}`}
+                      >
+                        {variantNames[v]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-[var(--bg)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50 md:col-span-2"
           >
             <div className="bg-[var(--primary)] bg-opacity-10 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
               <Hash className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)]" />
