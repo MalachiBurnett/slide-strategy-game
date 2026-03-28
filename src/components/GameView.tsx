@@ -23,6 +23,7 @@ interface GameViewProps {
   isWinScreenHidden: boolean;
   setIsWinScreenHidden: (hidden: boolean) => void;
   startPublicMatch: () => void;
+  error?: string;
 }
 
 export const GameView: React.FC<GameViewProps> = ({
@@ -43,6 +44,7 @@ export const GameView: React.FC<GameViewProps> = ({
   isWinScreenHidden,
   setIsWinScreenHidden,
   startPublicMatch,
+  error,
 }) => {
   const isWinner = gameState.winner === playerColor;
 
@@ -66,6 +68,19 @@ export const GameView: React.FC<GameViewProps> = ({
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex flex-col items-center justify-center p-4 font-sans transition-colors duration-500">
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -50, opacity: 0 }}
+            className="fixed top-8 z-50 px-6 py-3 bg-red-500/90 text-white rounded-2xl font-bold shadow-2xl backdrop-blur-md border-2 border-white/20"
+          >
+            {error}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="w-full max-w-2xl flex justify-between items-center mb-8">
         <div className={`p-4 rounded-2xl transition-all ${gameState.turn === 'W' ? 'bg-[var(--primary)] bg-opacity-10 shadow-lg scale-110 border-b-4 border-[var(--accent)]' : 'opacity-50'}`}>
           <div className="flex flex-col gap-1">

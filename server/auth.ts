@@ -285,7 +285,7 @@ router.post("/cosmetics", (req, res) => {
     }
     
     if (theme) {
-      const validThemes = ['dark', 'light', 'beach', 'wooden', 'connect4', 'wii', 'oscar'];
+      const validThemes = ['dark', 'light', 'beach', 'wooden', 'connect4', 'wii', 'oscar', 'sonic'];
       if (validThemes.includes(theme)) {
         updates.push("theme = ?");
         params.push(theme);

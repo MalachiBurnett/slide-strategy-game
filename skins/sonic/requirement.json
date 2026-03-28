@@ -1,0 +1,6 @@
+{
+  "unlockRequirement": "Play 5 matches",
+  "checkUnlock": "user.gamesPlayed >= 5",
+  "progress": "user.gamesPlayed",
+  "progressMax": "5"
+}
