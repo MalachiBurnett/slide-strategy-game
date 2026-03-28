@@ -313,7 +313,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             >
               Start Spectating
             </button>
-          </div>
+          </motion.div>
 
           {error && (
           <motion.div 
