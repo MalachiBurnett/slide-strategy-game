@@ -179,59 +179,6 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
           <motion.div 
             whileHover={{ scale: 1.02 }}
-            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50"
-          >
-            <div className="bg-[var(--primary)] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
-              <Play className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)] fill-current" />
-            </div>
-            <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Public Match</h2>
-            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Match against players within ±200 ELO range.</p>
-            <button 
-              onClick={startPublicMatch}
-              className="w-full py-3 sm:py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--primary)]/20"
-            >
-              Find Match
-            </button>
-          </motion.div>
-
-          <motion.div 
-            whileHover={{ scale: 1.02 }}
-            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50"
-          >
-            <div className="bg-[var(--accent)] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
-              <Users className="w-7 h-7 sm:w-8 h-8 text-[var(--accentText)]" />
-            </div>
-            <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Local Play</h2>
-            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Play with a friend on the same machine.</p>
-            <div className="h-[52px]"></div>
-            <button 
-              onClick={startLocalMatch}
-              className="w-full py-3 sm:py-4 bg-[var(--accent)] text-[var(--accentText)] rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--accent)]/20"
-            >
-              Start Local Game
-            </button>
-          </motion.div>
-
-          <motion.div 
-            whileHover={{ scale: 1.02 }}
-            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-purple-500 border-opacity-50"
-          >
-            <div className="bg-purple-500 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
-              <Eye className="w-7 h-7 sm:w-8 h-8 text-white" />
-            </div>
-            <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Spectate</h2>
-            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Watch other players in action.</p>
-            <div className="h-[52px]"></div>
-            <button 
-              onClick={() => setView('spectate')}
-              className="w-full py-3 sm:py-4 bg-purple-500 text-white rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-purple-500/20"
-            >
-              Start Spectating
-            </button>
-          </motion.div>
-
-          <motion.div 
-            whileHover={{ scale: 1.02 }}
             className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--primary)] border-opacity-50"
           >
             <div className="bg-[var(--primary)] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
@@ -282,6 +229,23 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
           <motion.div 
             whileHover={{ scale: 1.02 }}
+            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50"
+          >
+            <div className="bg-[var(--primary)] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
+              <Play className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)] fill-current" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Public Match</h2>
+            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Match against players within ±200 ELO range.</p>
+            <button 
+              onClick={startPublicMatch}
+              className="w-full py-3 sm:py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--primary)]/20"
+            >
+              Find Match
+            </button>
+          </motion.div>
+
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
             className="bg-[var(--bg)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50 md:col-span-2"
           >
             <div className="bg-[var(--primary)] bg-opacity-10 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
@@ -314,6 +278,41 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               </div>
             </div>
           </motion.div>
+
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50"
+          >
+            <div className="bg-[var(--accent)] w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
+              <Users className="w-7 h-7 sm:w-8 h-8 text-[var(--accentText)]" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Local Play</h2>
+            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Play with a friend on the same machine.</p>
+            <div className="h-[52px]"></div>
+            <button 
+              onClick={startLocalMatch}
+              className="w-full py-3 sm:py-4 bg-[var(--accent)] text-[var(--accentText)] rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-[var(--accent)]/20"
+            >
+              Start Local Game
+            </button>
+          </motion.div>
+
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-purple-500 border-opacity-50"
+          >
+            <div className="bg-purple-500 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
+              <Eye className="w-7 h-7 sm:w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Spectate</h2>
+            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Watch other players in action.</p>
+            <div className="h-[52px]"></div>
+            <button 
+              onClick={() => setView('spectate')}
+              className="w-full py-3 sm:py-4 bg-purple-500 text-white rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-purple-500/20"
+            >
+              Start Spectating
+            </button>
           </div>
 
           {error && (
