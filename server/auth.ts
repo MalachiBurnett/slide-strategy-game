@@ -1,9 +1,12 @@
 import express from "express";
 import bcrypt from "bcryptjs";
+import dotenv from "dotenv";
 import { db } from "./db";
 import { getSkins, updateUnlockedSkins } from "./skins";
 import { Resend } from "resend";
 import { v4 as uuidv4 } from "uuid";
+
+dotenv.config();
 
 const router = express.Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
