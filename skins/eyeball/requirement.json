@@ -1,0 +1,3 @@
+{
+  "checkUnlock": "user.spectators_count >= 5"
+}

@@ -10,6 +10,7 @@ import { GameView } from './components/GameView';
 import { CosmeticsView } from './components/CosmeticsView';
 import { ProfileView, ResetPasswordView } from './components/ProfileView';
 import { CreditsView } from './components/CreditsView';
+import { SpectateView } from './components/SpectateView';
 import { Mail, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -109,7 +110,7 @@ const VerifyView: React.FC<{ token: string, mode: 'auth' | 'email-change', onDon
 
 export default function App() {
   const [user, setUser] = useState<UserData | null>(null);
-  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify' | 'profile' | 'reset-password' | 'credits'>('auth');
+  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify' | 'profile' | 'reset-password' | 'credits' | 'spectate'>('auth');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -601,6 +602,7 @@ export default function App() {
         error={error}
         isRated={isRated}
         toggleRated={toggleRated}
+        socket={socket}
       />
     );
   }
@@ -665,6 +667,17 @@ export default function App() {
     return (
       <CreditsView 
         onBack={() => setView('lobby')}
+      />
+    );
+  }
+
+  if (view === 'spectate' && user) {
+    return (
+      <SpectateView
+        user={user}
+        setView={setView}
+        socket={socket}
+        formatTime={formatTime}
       />
     );
   }

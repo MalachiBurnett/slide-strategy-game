@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart } from 'lucide-react';
+import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart, Eye } from 'lucide-react';
 import { UserData, LeaderboardEntry, Turn } from '../types/game';
+import { Socket } from 'socket.io-client';
 
 interface LobbyViewProps {
   user: UserData | null;
@@ -18,7 +19,7 @@ interface LobbyViewProps {
   showTutorial: boolean;
   setShowTutorial: (show: boolean) => void;
   setUser: (user: UserData | null) => void;
-  setView: (view: 'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'profile' | 'credits') => void;
+  setView: (view: 'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'profile' | 'credits' | 'spectate') => void;
   handleLogout: () => void;
   startPublicMatch: () => void;
   startLocalMatch: () => void;
@@ -33,6 +34,7 @@ interface LobbyViewProps {
   error: string;
   isRated: boolean;
   toggleRated: () => void;
+  socket: Socket;
 }
 
 export const LobbyView: React.FC<LobbyViewProps> = ({
@@ -65,8 +67,26 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   error,
   isRated,
   toggleRated,
+  socket,
 }) => {
   const [showPatchNotes, setShowPatchNotes] = useState(false);
+  const [playersInGame, setPlayersInGame] = useState<Set<string>>(new Set());
+
+  React.useEffect(() => {
+    if (showLeaderboard) {
+      // Check each player on the leaderboard to see if they're in a game
+      const newPlayersInGame = new Set<string>();
+      leaderboard.forEach(entry => {
+        socket.emit('get_player_status', { username: entry.username }, (response: { inGame: boolean, gameId?: string }) => {
+          if (response.inGame) {
+            newPlayersInGame.add(entry.username);
+          }
+          setPlayersInGame(new Set(newPlayersInGame));
+        });
+      });
+    }
+  }, [showLeaderboard, leaderboard, socket]);
+  
   const variants = [
     { id: 'classic', name: 'Classic', desc: 'The original rules.' },
     { id: 'fog_of_war', name: 'Fog of War', desc: 'Only see squares you can move to.' },
@@ -177,7 +197,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           <VariantSelector />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50"
@@ -215,7 +235,25 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
           <motion.div 
             whileHover={{ scale: 1.02 }}
-            className="bg-[var(--bg)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50 md:col-span-2"
+            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-purple-500 border-opacity-50"
+          >
+            <div className="bg-purple-500 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
+              <Eye className="w-7 h-7 sm:w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Spectate</h2>
+            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">Watch other players in action.</p>
+            <div className="h-[52px]"></div>
+            <button 
+              onClick={() => setView('spectate')}
+              className="w-full py-3 sm:py-4 bg-purple-500 text-white rounded-2xl font-bold text-base sm:text-lg hover:opacity-90 transition-all shadow-lg shadow-purple-500/20"
+            >
+              Start Spectating
+            </button>
+          </motion.div>
+
+          <motion.div 
+            whileHover={{ scale: 1.02 }}
+            className="bg-[var(--bg)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50 md:col-span-3"
           >
             <div className="bg-[var(--primary)] bg-opacity-10 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
               <Hash className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)]" />
@@ -327,7 +365,23 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                       <span className="font-black opacity-40 w-6 text-[var(--primaryText)]">#{idx + 1}</span>
                       <span className="font-black text-[var(--primaryText)]">{entry.username}</span>
                     </div>
-                    <span className="font-black text-[var(--primaryText)]">{entry.elo} ELO</span>
+                    <div className="flex items-center gap-2">
+                      {playersInGame.has(entry.username) && (
+                        <button
+                          onClick={() => {
+                            setShowLeaderboard(false);
+                            // Store the username to spectate in localStorage so SpectateView can pick it up
+                            localStorage.setItem('spectateUsername', entry.username);
+                            setView('spectate');
+                          }}
+                          className="px-3 py-1 bg-purple-500 text-white rounded-lg text-sm font-bold hover:opacity-90 transition-all flex items-center gap-1"
+                        >
+                          <Eye className="w-4 h-4" />
+                          Spectate
+                        </button>
+                      )}
+                      <span className="font-black text-[var(--primaryText)] min-w-fit">{entry.elo} ELO</span>
+                    </div>
                   </div>
                 ))}
               </div>

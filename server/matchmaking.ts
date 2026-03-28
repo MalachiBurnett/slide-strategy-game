@@ -5,9 +5,12 @@ import { updateUnlockedSkins } from "./skins";
 
 const socketToUser = new Map<string, number>();
 const socketToGame = new Map<string, string>();
+const userToGame = new Map<number, string>(); // userId -> gameId
 const activeTimers = new Map<string, {timerW: number, timerB: number, turn: string, increment: number, lastMoveTime: number}>();
 const publicQueue: {userId: number, elo: number, socketId: string, timeControl: string, variant: string}[] = [];
 const privateGames = new Map<string, string>(); // code -> gameId
+const spectators = new Map<string, Set<number>>(); // gameId -> Set of spectator userIds
+const spectatorSessions = new Map<string, {spectatorId: number, targetUsername: string, gameId: string | null}>(); // socketId -> spectator session
 
 export function setupMatchmaking(io: Server) {
   let onlineCount = 0;
@@ -75,6 +78,21 @@ export function setupMatchmaking(io: Server) {
 
       if (userId && gameId) {
         handleGameEnd(io, gameId, null, 'forfeit', userId);
+      }
+      
+      // Clean up spectator sessions
+      const spectatorSession = spectatorSessions.get(socket.id);
+      if (spectatorSession) {
+        if (spectatorSession.gameId) {
+          const spectatorSet = spectators.get(spectatorSession.gameId);
+          if (spectatorSet) {
+            spectatorSet.delete(spectatorSession.spectatorId);
+            if (spectatorSet.size === 0) {
+              spectators.delete(spectatorSession.gameId);
+            }
+          }
+        }
+        spectatorSessions.delete(socket.id);
       }
       
       socketToUser.delete(socket.id);
@@ -149,6 +167,10 @@ export function setupMatchmaking(io: Server) {
           
           socketToUser.set(socket.id, data.userId);
           socketToGame.set(socket.id, gameId);
+          // Track active games for spectating
+          userToGame.set(data.userId, gameId);
+          userToGame.set(game.player_w, gameId);
+          
           socket.join(gameId);
 
           activeTimers.set(gameId, {
@@ -255,6 +277,117 @@ export function setupMatchmaking(io: Server) {
       db.run("UPDATE games SET is_rated = ? WHERE id = ?", [data.isRated ? 1 : 0, data.gameId]);
       io.to(data.gameId).emit("private_rated_updated", data.isRated);
     });
+
+    // Spectating Events
+    socket.on("get_player_status", (data: { username: string }, callback: (status: { inGame: boolean, gameId?: string }) => void) => {
+      db.get("SELECT id FROM users WHERE username = ?", [data.username], (err, user: any) => {
+        if (err || !user) {
+          return callback({ inGame: false });
+        }
+        const gameId = userToGame.get(user.id);
+        callback({ inGame: !!gameId, gameId });
+      });
+    });
+
+    socket.on("spectate", (data: { spectatorId: number, targetUsername: string }, callback: (response: { success: boolean, message?: string, gameData?: any }) => void) => {
+      db.get("SELECT id FROM users WHERE username = ?", [data.targetUsername], (err, targetUser: any) => {
+        if (!targetUser) {
+          return callback({ success: false, message: "User not found" });
+        }
+
+        const targetGameId = userToGame.get(targetUser.id);
+        if (!targetGameId) {
+          return callback({ success: false, message: "User is not currently in a game" });
+        }
+
+        // Get game data
+        db.get("SELECT * FROM games WHERE id = ?", [targetGameId], (err, game: any) => {
+          if (!game || game.status !== 'active') {
+            return callback({ success: false, message: "Game not found or is not active" });
+          }
+
+          // Record spectating in database for unlock tracking
+          db.run("INSERT OR IGNORE INTO spectating (spectator_id, target_player_id) VALUES (?, ?)", 
+            [data.spectatorId, targetUser.id], (err) => {
+              if (!err) {
+                // Update spectators_spectated_count (for the spectator, not the target)
+                db.run("SELECT COUNT(*) as count FROM spectating WHERE spectator_id = ?", 
+                  [data.spectatorId], (err, result: any) => {
+                    if (result) {
+                      db.run("UPDATE users SET spectators_count = ? WHERE id = ?", 
+                        [result.count, data.spectatorId], () => {
+                          // Check if unlock condition is met
+                          updateUnlockedSkins(data.spectatorId);
+                        });
+                    }
+                  });
+              }
+            });
+
+          // Get player usernames
+          db.all("SELECT id, username FROM users WHERE id IN (?, ?)", [game.player_w, game.player_b], (err, users: any[]) => {
+            const userW = users?.find(u => u.id == game.player_w);
+            const userB = users?.find(u => u.id == game.player_b);
+
+            // Initialize spectators set if needed
+            if (!spectators.has(targetGameId)) {
+              spectators.set(targetGameId, new Set());
+            }
+            spectators.get(targetGameId)!.add(data.spectatorId);
+
+            // Join the game room
+            socket.join(targetGameId);
+
+            // Track spectator session
+            spectatorSessions.set(socket.id, {
+              spectatorId: data.spectatorId,
+              targetUsername: data.targetUsername,
+              gameId: targetGameId
+            });
+
+            callback({
+              success: true,
+              gameData: {
+                gameId: targetGameId,
+                board: JSON.parse(game.board),
+                turn: game.turn,
+                skinW: game.skin_w,
+                skinB: game.skin_b,
+                variant: game.variant,
+                timerW: activeTimers.get(targetGameId)?.timerW || game.timer_w,
+                timerB: activeTimers.get(targetGameId)?.timerB || game.timer_b,
+                playerWUsername: userW?.username || 'Player W',
+                playerBUsername: userB?.username || 'Player B'
+              }
+            });
+          });
+        });
+      });
+    });
+
+    socket.on("start_spectating_wait", (data: { spectatorId: number, targetUsername: string }) => {
+      // Store the spectator session for when the target user starts a game
+      spectatorSessions.set(socket.id, {
+        spectatorId: data.spectatorId,
+        targetUsername: data.targetUsername,
+        gameId: null
+      });
+    });
+
+    socket.on("stop_spectating", (data: { spectatorId: number }) => {
+      const spectatorSession = spectatorSessions.get(socket.id);
+      if (spectatorSession && spectatorSession.gameId) {
+        const spectatorSet = spectators.get(spectatorSession.gameId);
+        if (spectatorSet) {
+          spectatorSet.delete(data.spectatorId);
+          if (spectatorSet.size === 0) {
+            spectators.delete(spectatorSession.gameId);
+          }
+        }
+        socket.leave(spectatorSession.gameId);
+      }
+      spectatorSessions.delete(socket.id);
+    });
   });
 }
 
@@ -275,6 +408,10 @@ function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: stri
 
     db.run("INSERT INTO games (id, board, turn, player_w, player_b, status, timer_w, timer_b, increment, last_move_time, variant, skin_w, skin_b) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [gameId, JSON.stringify(board), 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant, skinW, skinB]);
+
+    // Track active games for spectating
+    userToGame.set(userIdW, gameId);
+    userToGame.set(userIdB, gameId);
 
     activeTimers.set(gameId, { timerW: initialTimer, timerB: initialTimer, turn: 'W', increment, lastMoveTime: Date.now() });
 
@@ -303,6 +440,10 @@ function handleGameEnd(io: Server, gameId: string, winner: string | null, reason
       }
       db.run("UPDATE games SET status = 'finished', winner = ? WHERE id = ?", [finalWinner, gameId]);
     }
+
+    // Clean up userToGame mapping
+    userToGame.delete(playerW);
+    userToGame.delete(playerB);
 
     const emitFinalUpdate = (eloChange: number = 0) => {
       io.to(gameId).emit("game_update", {
