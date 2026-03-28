@@ -555,6 +555,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             </div>
           </div>
         </motion.div>
+          </div>
       </div>
     </div>
   );
