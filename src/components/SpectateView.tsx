@@ -19,6 +19,8 @@ export const SpectateView: React.FC<SpectateViewProps> = ({
   formatTime,
 }) => {
   const [inputUsername, setInputUsername] = useState('');
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [status, setStatus] = useState<'input' | 'loading' | 'waiting' | 'spectating' | 'error'>('input');
   const [spectatingUsername, setSpectatingUsername] = useState('');
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -27,6 +29,28 @@ export const SpectateView: React.FC<SpectateViewProps> = ({
   const [timerW, setTimerW] = useState<number | null>(null);
   const [timerB, setTimerB] = useState<number | null>(null);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (inputUsername.length >= 2) {
+      const fetchSuggestions = async () => {
+        try {
+          const res = await fetch(`/api/users/search?q=${encodeURIComponent(inputUsername)}`);
+          if (res.ok) {
+            const data = await res.json();
+            setSuggestions(data);
+            setShowSuggestions(data.length > 0);
+          }
+        } catch (e) {
+          console.error('Error fetching suggestions:', e);
+        }
+      };
+      const timer = setTimeout(fetchSuggestions, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  }, [inputUsername]);
 
   useEffect(() => {
     // Check if there's a username in localStorage to spectate
@@ -53,9 +77,14 @@ export const SpectateView: React.FC<SpectateViewProps> = ({
       setTimerB(data.timerB);
     });
 
+    socket.on('target_started_game', (data: { targetUsername: string }) => {
+      handleSpectateWithUsername(data.targetUsername);
+    });
+
     return () => {
       socket.off('game_update');
       socket.off('timer_update');
+      socket.off('target_started_game');
     };
   }, [socket]);
 
@@ -68,6 +97,7 @@ export const SpectateView: React.FC<SpectateViewProps> = ({
     setStatus('loading');
     setError('');
     setSpectatingUsername(username);
+    setShowSuggestions(false);
 
     // Check if player is in a game
     socket.emit('get_player_status', { username }, (response: { inGame: boolean, gameId?: string }) => {
@@ -126,14 +156,41 @@ export const SpectateView: React.FC<SpectateViewProps> = ({
             </div>
 
             <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Enter player username"
-                value={inputUsername}
-                onChange={(e) => setInputUsername(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSpectate()}
-                className="w-full px-4 py-3 bg-[var(--bg)] text-[var(--text)] rounded-xl border-2 border-[var(--primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Enter player username"
+                  value={inputUsername}
+                  onChange={(e) => setInputUsername(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSpectate()}
+                  onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                  className="w-full px-4 py-3 bg-[var(--bg)] text-[var(--text)] rounded-xl border-2 border-[var(--primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                />
+                
+                <AnimatePresence>
+                  {showSuggestions && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="absolute left-0 right-0 mt-2 bg-[var(--bgLight)] rounded-xl shadow-2xl border-2 border-[var(--primary)] overflow-hidden z-50"
+                    >
+                      {suggestions.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            setInputUsername(s);
+                            handleSpectateWithUsername(s);
+                          }}
+                          className="w-full px-4 py-3 text-left hover:bg-[var(--primary)] hover:text-[var(--primaryText)] transition-colors font-bold"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
               {error && (
                 <p className="text-red-500 text-sm font-bold">{error}</p>
@@ -232,20 +289,39 @@ export const SpectateView: React.FC<SpectateViewProps> = ({
               </div>
             </div>
           </div>
+        </div>
 
-          <div className="bg-[var(--bgLight)] rounded-3xl p-8 shadow-2xl">
-            <div className="grid grid-cols-6 gap-2 mb-8">
-              {gameState.board.map((row, r) =>
-                row.map((piece, c) => (
+        <div className="relative bg-[var(--boardBorder)] p-4 rounded-3xl shadow-2xl border-b-8 border-[var(--secondary)]">
+          <div className="grid grid-cols-6 gap-2 bg-[var(--secondary)] p-2 rounded-xl border-4 border-[var(--secondary)]">
+            {gameState.board.map((row, r) =>
+              row.map((piece, c) => {
+                const winningIndex = gameState.winningLine?.findIndex(l => l.r === r && l.c === c) ?? -1;
+                const isWinningPiece = winningIndex !== -1;
+                const skin = piece === 'W' ? (gameState.skinW || 'classic') : (gameState.skinB || 'classic');
+
+                return (
                   <div
                     key={`${r}-${c}`}
-                    className="aspect-square bg-[var(--boardBg)] rounded-xl border-2 border-[var(--primary)] shadow-md flex items-center justify-center cursor-default"
+                    className={`
+                      w-12 h-12 sm:w-16 sm:h-16 rounded-lg flex items-center justify-center cursor-default transition-all relative
+                      ${(r + c) % 2 === 0 ? 'bg-[var(--boardLight)]' : 'bg-[var(--boardDark)]'}
+                      ${isWinningPiece ? 'ring-4 ring-orange-500 ring-inset bg-orange-100/30' : ''}
+                    `}
                   >
-                    <PieceComponent piece={piece} skin={piece === 'W' ? gameState.skinW : gameState.skinB} />
+                    <AnimatePresence mode="popLayout">
+                      {piece !== '0' && (
+                        <PieceComponent
+                          type={piece as 'W' | 'B'}
+                          skin={skin}
+                          isWinningPiece={isWinningPiece}
+                          winningIndex={winningIndex}
+                        />
+                      )}
+                    </AnimatePresence>
                   </div>
-                ))
-              )}
-            </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>

@@ -11,6 +11,26 @@ const publicQueue: {userId: number, elo: number, socketId: string, timeControl: 
 const privateGames = new Map<string, string>(); // code -> gameId
 const spectators = new Map<string, Set<number>>(); // gameId -> Set of spectator userIds
 const spectatorSessions = new Map<string, {spectatorId: number, targetUsername: string, gameId: string | null}>(); // socketId -> spectator session
+const pendingTerminations = new Map<number, NodeJS.Timeout>(); // userId -> timeout
+
+function notifyWaitingSpectators(io: Server, gameId: string, playerWId: number, playerBId: number) {
+  db.all("SELECT id, username FROM users WHERE id IN (?, ?)", [playerWId, playerBId], (err, users: any[]) => {
+    if (err || !users) return;
+    const playerW = users.find(u => u.id === playerWId);
+    const playerB = users.find(u => u.id === playerBId);
+    const usernames = [playerW?.username, playerB?.username].filter(Boolean);
+
+    for (const [socketId, session] of spectatorSessions.entries()) {
+      if (!session.gameId && usernames.includes(session.targetUsername)) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket) {
+          // Re-trigger spectate for the spectator
+          socket.emit("target_started_game", { targetUsername: session.targetUsername });
+        }
+      }
+    }
+  });
+}
 
 export function setupMatchmaking(io: Server) {
   let onlineCount = 0;
@@ -77,7 +97,21 @@ export function setupMatchmaking(io: Server) {
       }
 
       if (userId && gameId) {
-        handleGameEnd(io, gameId, null, 'forfeit', userId);
+        const timerData = activeTimers.get(gameId);
+        if (timerData) {
+          const remaining = timerData.turn === 'W' ? timerData.timerW : timerData.timerB;
+          const timeout = Math.min(10, remaining) * 1000;
+          
+          const termination = setTimeout(() => {
+            handleGameEnd(io, gameId, null, 'forfeit', userId);
+            pendingTerminations.delete(userId);
+          }, timeout);
+          
+          pendingTerminations.set(userId, termination);
+          io.to(gameId).emit("player_disconnected", { userId, timeout: timeout / 1000 });
+        } else {
+          handleGameEnd(io, gameId, null, 'forfeit', userId);
+        }
       }
       
       // Clean up spectator sessions
@@ -97,6 +131,50 @@ export function setupMatchmaking(io: Server) {
       
       socketToUser.delete(socket.id);
       socketToGame.delete(socket.id);
+    });
+
+    socket.on("check_reconnect", (data: { userId: number }, callback: (response: any) => void) => {
+      const gameId = userToGame.get(data.userId);
+      if (!gameId) return callback({ inGame: false });
+
+      db.get("SELECT * FROM games WHERE id = ?", [gameId], (err, game: any) => {
+        if (!game || game.status !== 'active') return callback({ inGame: false });
+
+        // Cancel pending termination
+        const pending = pendingTerminations.get(data.userId);
+        if (pending) {
+          clearTimeout(pending);
+          pendingTerminations.delete(data.userId);
+        }
+
+        socketToUser.set(socket.id, data.userId);
+        socketToGame.set(socket.id, gameId);
+        socket.join(gameId);
+
+        const color = data.userId === Number(game.player_w) ? 'W' : 'B';
+        const opponentId = color === 'W' ? game.player_b : game.player_w;
+        
+        db.get("SELECT username FROM users WHERE id = ?", [opponentId], (err, opp: any) => {
+          const timerData = activeTimers.get(gameId);
+          callback({
+            inGame: true,
+            gameData: {
+              gameId,
+              color,
+              opponentName: opp?.username,
+              timerW: timerData?.timerW || game.timer_w,
+              timerB: timerData?.timerB || game.timer_b,
+              skinW: game.skin_w,
+              skinB: game.skin_b,
+              variant: game.variant,
+              board: JSON.parse(game.board),
+              turn: timerData?.turn || game.turn
+            }
+          });
+          
+          io.to(gameId).emit("player_reconnected", { userId: data.userId });
+        });
+      });
     });
 
     socket.on("join_queue", (data: {userId: number, elo: number, timeControl: string, variant: string}) => {
@@ -146,6 +224,9 @@ export function setupMatchmaking(io: Server) {
         db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant, skin_w) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           [gameId, board, 'W', data.userId, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variant, skinW]);
         
+        // Track game for spectating even if waiting
+        userToGame.set(data.userId, gameId);
+        
         privateGames.set(code, gameId);
         socket.join(gameId);
         socket.emit("private_created", { code, gameId, timerW: initialTimer, timerB: initialTimer, variant });
@@ -180,6 +261,8 @@ export function setupMatchmaking(io: Server) {
             increment: game.increment,
             lastMoveTime: Date.now()
           });
+
+          notifyWaitingSpectators(io, gameId, game.player_w, data.userId);
 
           db.get("SELECT username, skin FROM users WHERE id = ?", [game.player_w], (err, userW: any) => {
             const skinW = userW?.skin || 'classic';
@@ -414,6 +497,8 @@ function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: stri
     userToGame.set(userIdB, gameId);
 
     activeTimers.set(gameId, { timerW: initialTimer, timerB: initialTimer, turn: 'W', increment, lastMoveTime: Date.now() });
+
+    notifyWaitingSpectators(io, gameId, userIdW, userIdB);
 
     io.to(socketIdW).emit("match_found", { 
       gameId, color: 'W', opponentName: userB?.username, timerW: initialTimer, timerB: initialTimer, skinW, skinB, variant, board 

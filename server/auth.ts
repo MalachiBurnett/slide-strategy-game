@@ -18,6 +18,15 @@ router.get("/leaderboard", (req, res) => {
   });
 });
 
+router.get("/users/search", (req, res) => {
+  const { q } = req.query;
+  if (!q || typeof q !== "string") return res.json([]);
+  db.all("SELECT username FROM users WHERE username LIKE ? LIMIT 5", [q + "%"], (err, rows) => {
+    if (err) return res.status(500).json({ error: "Error searching users" });
+    res.json(rows.map((r: any) => r.username));
+  });
+});
+
 router.post("/register", (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password) return res.status(400).json({ error: "Missing fields" });
