@@ -24,6 +24,7 @@ interface GameViewProps {
   setIsWinScreenHidden: (hidden: boolean) => void;
   startPublicMatch: () => void;
   error?: string;
+  isRated: boolean;
 }
 
 export const GameView: React.FC<GameViewProps> = ({
@@ -45,6 +46,7 @@ export const GameView: React.FC<GameViewProps> = ({
   setIsWinScreenHidden,
   startPublicMatch,
   error,
+  isRated,
 }) => {
   const isWinner = gameState.winner === playerColor;
 
@@ -210,8 +212,8 @@ export const GameView: React.FC<GameViewProps> = ({
               {!isLocal && (
                 <div className="bg-[var(--primary)] bg-opacity-5 p-6 rounded-2xl mb-12">
                   <p className="text-sm opacity-40 uppercase font-bold tracking-widest mb-2">ELO Change</p>
-                  <p className={`text-4xl font-bold ${isWinner ? 'text-green-600' : 'text-red-600'}`}>
-                    {isWinner ? '+' : '-'}{gameState.eloChange || 25}
+                  <p className={`text-4xl font-bold ${isRated ? (isWinner ? 'text-green-600' : 'text-red-600') : 'text-gray-400'}`}>
+                    {isRated ? `${isWinner ? '+' : '-'}${gameState.eloChange || 25}` : 'no elo change'}
                   </p>
                 </div>
               )}
