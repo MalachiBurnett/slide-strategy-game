@@ -54,6 +54,7 @@ export function updateUnlockedSkins(userId: number) {
               games_random_setup: user.games_random_setup || 0,
               games_1min: user.games_1min || 0,
               games_fog_of_war: user.games_fog_of_war || 0,
+              spectators_count: user.spectators_count || 0,
               leaderboardRank: rank
             });
 
