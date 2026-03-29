@@ -34,15 +34,15 @@ export const EmoteButton: React.FC<EmoteButtonProps> = ({ onEmoteSelect, disable
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.2 }}
-            className="absolute bottom-full right-0 mb-2 bg-[var(--bgLight)] border-2 border-[var(--primary)] rounded-2xl p-3 shadow-2xl z-50 grid grid-cols-5 gap-2"
+            className="absolute bottom-full right-0 mb-2 bg-[var(--bgLight)] border-2 border-[var(--primary)] rounded-2xl p-2 shadow-2xl z-50 flex flex-wrap justify-center gap-1 w-fit max-w-xs"
           >
             {EMOTES.map((emote) => (
               <motion.button
                 key={emote.id}
                 onClick={() => handleEmoteClick(emote.id as EmoteId)}
-                whileHover={{ scale: 1.15 }}
+                whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
-                className="text-3xl p-2 rounded-lg hover:bg-[var(--primary)] hover:bg-opacity-10 transition-colors"
+                className="text-2xl p-1.5 rounded-lg hover:bg-[var(--primary)] hover:bg-opacity-10 transition-colors flex-shrink-0"
                 title={emote.label}
               >
                 {emote.emoji}

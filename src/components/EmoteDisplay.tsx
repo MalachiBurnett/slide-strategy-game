@@ -11,7 +11,7 @@ export const EmoteDisplay: React.FC<EmoteDisplayProps> = ({ emoteId, onComplete 
   const emote = EMOTES.find(e => e.id === emoteId);
 
   useEffect(() => {
-    const timer = setTimeout(onComplete, 2000);
+    const timer = setTimeout(onComplete, 3000);
     return () => clearTimeout(timer);
   }, [onComplete]);
 
@@ -23,7 +23,7 @@ export const EmoteDisplay: React.FC<EmoteDisplayProps> = ({ emoteId, onComplete 
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 50, scale: 0.5 }}
       transition={{
-        opacity: { duration: 2 },
+        opacity: { duration: 1.2 },
         y: { duration: 0.4 },
         scale: { duration: 0.4 }
       }}
