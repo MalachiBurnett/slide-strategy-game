@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { INITIAL_BOARD, THEMES } from './constants/game';
 import { GameState, UserData, LeaderboardEntry, Turn, Skin, Theme } from './types/game';
+import { EmoteId } from './constants/emotes';
 import { getValidMoves, checkWin } from './utils/gameLogic';
 import { AuthView } from './components/AuthView';
 import { LobbyView } from './components/LobbyView';
@@ -166,6 +167,7 @@ export default function App() {
   const [variant, setVariant] = useState<string>('classic');
   const [timerW, setTimerW] = useState<number | null>(null);
   const [timerB, setTimerB] = useState<number | null>(null);
+  const [activeEmote, setActiveEmote] = useState<string | null>(null);
 
   // Apply theme
   useEffect(() => {
@@ -406,6 +408,10 @@ export default function App() {
       }
     });
 
+    socket.on('emote_received', (data: { emoteId: string }) => {
+      setActiveEmote(data.emoteId);
+    });
+
     return () => {
       socket.off('match_found');
       socket.off('private_created');
@@ -416,6 +422,7 @@ export default function App() {
       socket.off('error');
       socket.off('player_disconnected');
       socket.off('player_reconnected');
+      socket.off('emote_received');
     };
   }, [user?.id, gameState]);
 
@@ -586,6 +593,16 @@ export default function App() {
     return getValidMoves(gameState.board, r, c).length > 0;
   };
 
+  const handleSendEmote = (emoteId: EmoteId) => {
+    if (!gameId || isLocal) return;
+    setActiveEmote(emoteId);
+    socket.emit('send_emote', { gameId, emoteId, userId: user?.id });
+  };
+
+  const handleEmoteComplete = () => {
+    setActiveEmote(null);
+  };
+
   if (view === 'verify' && verifyToken) {
     return <VerifyView token={verifyToken} mode={verifyMode} onDone={() => {
       window.history.replaceState({}, '', '/');
@@ -717,6 +734,9 @@ export default function App() {
         startPublicMatch={startPublicMatch}
         error={error}
         isRated={isRated}
+        onSendEmote={handleSendEmote}
+        activeEmote={activeEmote}
+        onEmoteComplete={handleEmoteComplete}
       />
     );
   }

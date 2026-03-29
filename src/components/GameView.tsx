@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Trophy, EyeOff } from 'lucide-react';
 import { GameState, UserData, Turn } from '../types/game';
 import { Piece as PieceComponent } from './Piece';
+import { EmoteButton } from './EmoteButton';
+import { EmoteDisplay } from './EmoteDisplay';
+import { EmoteId } from '../constants/emotes';
 import { getValidMoves } from '../utils/gameLogic';
 
 interface GameViewProps {
@@ -25,6 +28,9 @@ interface GameViewProps {
   startPublicMatch: () => void;
   error?: string;
   isRated: boolean;
+  onSendEmote?: (emoteId: EmoteId) => void;
+  activeEmote?: string | null;
+  onEmoteComplete?: () => void;
 }
 
 export const GameView: React.FC<GameViewProps> = ({
@@ -47,6 +53,9 @@ export const GameView: React.FC<GameViewProps> = ({
   startPublicMatch,
   error,
   isRated,
+  onSendEmote,
+  activeEmote,
+  onEmoteComplete,
 }) => {
   const isWinner = gameState.winner === playerColor;
 
@@ -170,9 +179,27 @@ export const GameView: React.FC<GameViewProps> = ({
             })
           ))}
         </div>
+        
+        {/* Emote Display - centered on board */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <AnimatePresence>
+            {activeEmote && onEmoteComplete && (
+              <EmoteDisplay 
+                emoteId={activeEmote}
+                onComplete={onEmoteComplete}
+              />
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       <div className="mt-12 flex gap-4">
+        {!isLocal && onSendEmote && (
+          <EmoteButton 
+            onEmoteSelect={onSendEmote}
+            disabled={gameState.status !== 'active'}
+          />
+        )}
         <button 
           onClick={handleQuit}
           className="px-8 py-3 bg-[var(--bg)] border-2 border-[var(--primary)] text-[var(--primary)] rounded-xl font-bold hover:bg-[var(--primary)] hover:text-[var(--bg)] transition-all"

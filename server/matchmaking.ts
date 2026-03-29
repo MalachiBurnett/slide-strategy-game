@@ -368,6 +368,11 @@ export function setupMatchmaking(io: Server) {
       io.to(data.gameId).emit("private_rated_updated", data.isRated);
     });
 
+    socket.on("send_emote", (data: { gameId: string, emoteId: string, userId: number }) => {
+      // Broadcast the emote to all players and spectators in the game
+      io.to(data.gameId).emit("emote_received", { emoteId: data.emoteId });
+    });
+
     // Spectating Events
     socket.on("get_player_status", (data: { username: string }, callback: (status: { inGame: boolean, gameId?: string }) => void) => {
       db.get("SELECT id FROM users WHERE username = ?", [data.username], (err, user: any) => {
