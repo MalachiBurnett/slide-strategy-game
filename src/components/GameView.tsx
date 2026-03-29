@@ -185,6 +185,7 @@ export const GameView: React.FC<GameViewProps> = ({
           <AnimatePresence>
             {activeEmote && onEmoteComplete && (
               <EmoteDisplay 
+                key={activeEmote}
                 emoteId={activeEmote}
                 onComplete={onEmoteComplete}
               />

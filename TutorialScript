@@ -1,0 +1,16 @@
+#each line should be a new section of dialogue that they have to click next to continue from if that makes sense
+#coordinates in this script treat the top left corner as (0, 0) and the bottom right as (5, 5)
+#lines with ; shouldnt have a next button and instead have another condition to continue
+Hello! i am Tutorial bot and i am here to teach you how to play slide!
+This is the board. it is 6 squares wide and 6 squares tall. this is where the game is played.
+Each player starts with 6 pieces of thier color. you will play with the black pieces in this tutorial.
+Like in chess, white always goes first. 
+pieces move by sliding in one cardinal direction untill they hit a wall or another piece. #move (2, 0) down and animate the sliding and highlight it orange as this happens.
+the aim of the game is to get 4 pieces in a row, like connect 4.
+currently, on my next turn, i can move this piece here and win #highlight (5, 3) and (1, 3)
+it is currently your go, to stop me, you can move this piece here because i cannot jump over it. #highlight (0,3) and (4, 3)
+to make a move, first click on this piece #highlight (0,3) and wait for user to click on it ;
+then click the square you would like to move it to. #highlight (4, 3) and wait for user to click on it ;
+now i will make my move. #move (2, 4) left
+try to see if there is a winning move for you here. #let the user make a move. if it doesnt win, say "there was a better move you could have made here" and undo it (with an animation to show what has been undone). if the user wins (moves (0, 3) down) then continue.
+contratulations on winning your first game! now go get to the top of the leaderboard! #show finish instead of next

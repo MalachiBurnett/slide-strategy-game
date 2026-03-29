@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart, Eye } from 'lucide-react';
+import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart, Eye, HelpCircle } from 'lucide-react';
 import { UserData, LeaderboardEntry, Turn } from '../types/game';
 import { Socket } from 'socket.io-client';
 
@@ -19,7 +19,7 @@ interface LobbyViewProps {
   showTutorial: boolean;
   setShowTutorial: (show: boolean) => void;
   setUser: (user: UserData | null) => void;
-  setView: (view: 'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'profile' | 'credits' | 'spectate') => void;
+  setView: (view: 'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'profile' | 'credits' | 'spectate' | 'tutorial') => void;
   handleLogout: () => void;
   startPublicMatch: () => void;
   startLocalMatch: () => void;
@@ -130,6 +130,13 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
               title="Credits"
             >
               <Heart className="w-5 h-5 sm:w-6 h-6" />
+            </button>
+            <button 
+              onClick={() => setShowTutorial(true)}
+              className="p-2 sm:p-3 bg-[var(--bgLight)] rounded-full shadow-md hover:shadow-lg transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-20"
+              title="How to Play"
+            >
+              <HelpCircle className="w-5 h-5 sm:w-6 h-6" />
             </button>
             <div className="text-right flex flex-col items-end">
               <button 
@@ -420,9 +427,23 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
                   <h4 className="font-bold text-[var(--primary)] mb-2">Turns</h4>
                   <p>White always moves first. Players take turns sliding one piece at a time.</p>
                 </div>
+
+                <div className="border-t border-[var(--primary)] border-opacity-10 pt-6">
+                  <button 
+                    onClick={() => {
+                      setShowTutorial(false);
+                      setView('tutorial');
+                    }}
+                    className="w-full py-4 bg-[var(--primary)] text-[var(--bg)] rounded-2xl font-black text-lg hover:scale-105 transition-all shadow-xl shadow-[var(--primary)]/20 flex items-center justify-center gap-2"
+                  >
+                    <Play className="w-5 h-5 fill-current" />
+                    Start Interactive Tutorial
+                  </button>
+                </div>
+
                 <button 
                   onClick={() => setShowTutorial(false)}
-                  className="w-full py-3 bg-[var(--primary)] text-[var(--bg)] rounded-xl font-bold mt-4"
+                  className="w-full py-3 bg-[var(--bg)] border-2 border-[var(--primary)] text-[var(--primary)] rounded-xl font-bold mt-4"
                 >
                   Got it!
                 </button>

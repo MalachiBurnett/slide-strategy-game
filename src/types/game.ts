@@ -4,7 +4,7 @@ export type Turn = 'W' | 'B';
 export type Status = 'active' | 'waiting' | 'finished';
 
 export type Skin = string;
-export type Theme = 'dark' | 'light' | 'beach' | 'wooden' | 'connect4' | 'wii' | 'oscar';
+export type Theme = 'dark' | 'light' | 'beach' | 'wooden' | 'connect4' | 'wii' | 'oscar' | 'sonic';
 
 export interface SkinData {
   id: string;
@@ -25,6 +25,7 @@ export interface GameState {
   skinW?: Skin;
   skinB?: Skin;
   variant?: string;
+  isRated?: boolean;
 }
 
 export interface UserData {
