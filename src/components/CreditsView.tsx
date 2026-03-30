@@ -17,9 +17,9 @@ export const CreditsView: React.FC<CreditsViewProps> = ({ onBack }) => {
       linkText: 'Portfolio'
     },
     {
-      name: 'Oscar Lowther',
+      name: 'Oscar Lowther, Reuben Storer, Jo Sheehy, Ethan Taylor, and Leo Berner',
       role: 'Features Lead',
-      description: 'Main person who suggests features to implement',
+      description: 'The people contantly suggesting new features and improvements.',
       icon: <Github className="w-6 h-6 text-[var(--primaryText)]" />,
       link: null,
       linkText: null
@@ -27,7 +27,7 @@ export const CreditsView: React.FC<CreditsViewProps> = ({ onBack }) => {
     {
       name: 'Asha Fitton-Patel',
       role: 'Game Designer',
-      description: 'Original designer of the game',
+      description: 'Original designer of the physical game (as far as i know, correct me if this game already existed)',
       icon: <Palette className="w-6 h-6 text-[var(--primaryText)]" />,
       link: null,
       linkText: null

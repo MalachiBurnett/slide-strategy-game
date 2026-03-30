@@ -182,7 +182,7 @@ export const TutorialView: React.FC<TutorialViewProps> = ({ onComplete }) => {
             </div>
             <span className="font-bold text-[var(--primary)]">Tutorial Bot</span>
           </div>
-          <p className="text-xl font-bold leading-tight min-h-[3rem]">
+          <p className="text-xl font-bold leading-tight min-h-[3rem] text-[var(--primaryText)]">
             {message}
           </p>
           {currentStep.waitCondition === 'click' && !isBotMoving && (

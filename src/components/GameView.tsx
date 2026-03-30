@@ -97,7 +97,7 @@ export const GameView: React.FC<GameViewProps> = ({
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-3">
               <div className="w-6 h-6 bg-white border-2 border-gray-300 rounded-full shadow-inner"></div>
-              <span className="font-bold">
+              <span className="font-bold text-[var(--primaryText)]">
                 {isLocal ? 'White (P1)' : (playerColor === 'W' ? (user?.username || 'You') : (opponentName || 'White'))}
               </span>
             </div>
@@ -118,7 +118,7 @@ export const GameView: React.FC<GameViewProps> = ({
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-3">
               <div className="w-6 h-6 bg-[#2a2a2a] rounded-full shadow-lg"></div>
-              <span className="font-bold">
+              <span className="font-bold text-[var(--primaryText)]">
                 {isLocal ? 'Black (P2)' : (playerColor === 'B' ? (user?.username || 'You') : (opponentName || 'Black'))}
               </span>
             </div>
