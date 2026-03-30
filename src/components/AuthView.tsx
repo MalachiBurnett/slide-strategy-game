@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { User, LogIn, UserPlus, Trophy, Lock, Users, Mail, ArrowLeft, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { validateUsername, validatePassword, getPasswordRequirements } from '../utils/validation';
 
 interface AuthViewProps {
   authMode: 'login' | 'register';
@@ -37,6 +38,30 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [resendVerificationInput, setResendVerificationInput] = useState('');
   const [resendVerificationStatus, setResendVerificationStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [resendVerificationMessage, setResendVerificationMessage] = useState('');
+  const [usernameError, setUsernameError] = useState<string>('');
+  const [passwordError, setPasswordError] = useState<string>('');
+  const [passwordRequirements, setPasswordRequirements] = useState(getPasswordRequirements(''));
+
+  const handleUsernameChange = (value: string) => {
+    setUsername(value);
+    if (authMode === 'register' && value) {
+      const validation = validateUsername(value);
+      setUsernameError(validation.valid ? '' : validation.error || '');
+    } else {
+      setUsernameError('');
+    }
+  };
+
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    if (authMode === 'register') {
+      const validation = validatePassword(value);
+      setPasswordError(validation.valid ? '' : validation.error || '');
+      setPasswordRequirements(getPasswordRequirements(value));
+    } else {
+      setPasswordError('');
+    }
+  };
 
   const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -263,10 +288,24 @@ export const AuthView: React.FC<AuthViewProps> = ({
             <input 
               type="text" 
               placeholder={authMode === 'login' ? "Username or Email" : "Username"} 
-              className="w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
+              className={`w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border rounded-2xl focus:ring-2 outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40 ${
+                usernameError ? 'border-red-500 focus:ring-red-500' : 'border-[var(--primary)] border-opacity-10 focus:ring-[var(--primary)]'
+              }`}
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => handleUsernameChange(e.target.value)}
             />
+            {usernameError && authMode === 'register' && (
+              <p className="mt-2 text-xs text-red-500 font-medium flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                {usernameError}
+              </p>
+            )}
+            {authMode === 'register' && username && !usernameError && (
+              <p className="mt-2 text-xs text-green-500 font-medium flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" />
+                Username looks good
+              </p>
+            )}
           </div>
           {authMode === 'register' && (
             <div className="relative">
@@ -285,13 +324,46 @@ export const AuthView: React.FC<AuthViewProps> = ({
             <input 
               type="password" 
               placeholder="Password" 
-              className="w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
+              className={`w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border rounded-2xl focus:ring-2 outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40 ${
+                passwordError ? 'border-red-500 focus:ring-red-500' : 'border-[var(--primary)] border-opacity-10 focus:ring-[var(--primary)]'
+              }`}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => handlePasswordChange(e.target.value)}
             />
+            {authMode === 'register' && password && (
+              <div className="mt-3 p-3 bg-[var(--bg)] rounded-lg border border-[var(--primary)] border-opacity-20 space-y-2">
+                <p className="text-xs font-bold opacity-60 uppercase tracking-wide">Password Requirements:</p>
+                <div className="space-y-1 text-xs">
+                  <div className={`flex items-center gap-2 ${passwordRequirements.minLength ? 'text-green-500' : 'text-red-400'}`}>
+                    {passwordRequirements.minLength ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                    At least 8 characters
+                  </div>
+                  <div className={`flex items-center gap-2 ${passwordRequirements.maxLength ? 'text-green-500' : 'text-red-400'}`}>
+                    {passwordRequirements.maxLength ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                    Maximum 20 characters
+                  </div>
+                  <div className={`flex items-center gap-2 ${passwordRequirements.hasUppercase ? 'text-green-500' : 'text-red-400'}`}>
+                    {passwordRequirements.hasUppercase ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                    One uppercase letter (A-Z)
+                  </div>
+                  <div className={`flex items-center gap-2 ${passwordRequirements.hasNumber ? 'text-green-500' : 'text-red-400'}`}>
+                    {passwordRequirements.hasNumber ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                    One number (0-9)
+                  </div>
+                  <div className={`flex items-center gap-2 ${passwordRequirements.hasSpecial ? 'text-green-500' : 'text-red-400'}`}>
+                    {passwordRequirements.hasSpecial ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                    One special character (!@#$%^&*)
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           
-          <button type="submit" className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-xl shadow-[var(--primary)]/20 mt-6">
+          <button 
+            type="submit" 
+            disabled={authMode === 'register' && (!!usernameError || !!passwordError || !username || !password || !email)}
+            className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-xl shadow-[var(--primary)]/20 mt-6 disabled:opacity-50"
+          >
             {authMode === 'login' ? <LogIn className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
             {authMode === 'login' ? 'Login' : 'Register'}
           </button>

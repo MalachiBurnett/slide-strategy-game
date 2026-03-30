@@ -5,6 +5,7 @@ import { db } from "./db";
 import { getSkins, updateUnlockedSkins } from "./skins";
 import { Resend } from "resend";
 import { v4 as uuidv4 } from "uuid";
+import { validateUsername, validatePassword } from "./validation";
 
 dotenv.config();
 
@@ -31,14 +32,25 @@ router.post("/register", (req, res) => {
   const { username, email, password } = req.body;
   if (!username || !email || !password) return res.status(400).json({ error: "Missing fields" });
   
-  db.get("SELECT * FROM banned_names WHERE name = ?", [username], (err, banned) => {
+  // Validate username
+  const usernameValidation = validateUsername(username);
+  if (!usernameValidation.valid) return res.status(400).json({ error: usernameValidation.error });
+  
+  // Validate password
+  const passwordValidation = validatePassword(password);
+  if (!passwordValidation.valid) return res.status(400).json({ error: passwordValidation.error });
+  
+  // Convert username to lowercase for case-insensitive storage
+  const lowerUsername = username.toLowerCase();
+  
+  db.get("SELECT * FROM banned_names WHERE name = ?", [lowerUsername], (err, banned) => {
     if (banned) return res.status(403).json({ error: "This name is banned and cannot be used." });
 
     const hash = bcrypt.hashSync(password, 10);
     const token = uuidv4();
     
     db.run("INSERT INTO users (username, email, password, elo, verification_token, is_verified) VALUES (?, ?, ?, ?, ?, ?)", 
-      [username, email, hash, 600, token, 0], async function(err) {
+      [lowerUsername, email, hash, 600, token, 0], async function(err) {
       if (err) {
         if (err.message.includes("UNIQUE constraint failed: users.username")) {
           return res.status(400).json({ error: "Username taken" });
@@ -71,17 +83,30 @@ router.post("/profile/username", (req, res) => {
   if (!userId) return res.status(401).json({ error: "Not logged in" });
   const { username } = req.body;
   if (!username) return res.status(400).json({ error: "Username required" });
+  
+  // Check if user is guest
+  db.get("SELECT is_guest FROM users WHERE id = ?", [userId], (err, user: any) => {
+    if (err || !user) return res.status(401).json({ error: "User not found" });
+    if (user.is_guest) return res.status(403).json({ error: "Guests cannot change username" });
+    
+    // Validate username
+    const usernameValidation = validateUsername(username);
+    if (!usernameValidation.valid) return res.status(400).json({ error: usernameValidation.error });
+    
+    // Convert to lowercase
+    const lowerUsername = username.toLowerCase();
 
-  db.get("SELECT * FROM banned_names WHERE name = ?", [username], (err, banned) => {
-    if (banned) return res.status(403).json({ error: "This name is banned." });
+    db.get("SELECT * FROM banned_names WHERE name = ?", [lowerUsername], (err, banned) => {
+      if (banned) return res.status(403).json({ error: "This name is banned." });
 
-    db.run("UPDATE users SET username = ?, is_banned = 0 WHERE id = ?", [username, userId], function(err) {
-      if (err) {
-        if (err.message.includes("UNIQUE constraint failed")) return res.status(400).json({ error: "Username taken" });
-        return res.status(500).json({ error: "Update failed" });
-      }
-      (req.session as any).username = username;
-      res.json({ success: true, username });
+      db.run("UPDATE users SET username = ?, is_banned = 0 WHERE id = ?", [lowerUsername, userId], function(err) {
+        if (err) {
+          if (err.message.includes("UNIQUE constraint failed")) return res.status(400).json({ error: "Username taken" });
+          return res.status(500).json({ error: "Update failed" });
+        }
+        (req.session as any).username = lowerUsername;
+        res.json({ success: true, username: lowerUsername });
+      });
     });
   });
 });
@@ -142,6 +167,10 @@ router.post("/profile/password-reset-request", (req, res) => {
 router.post("/profile/password-reset-confirm", (req, res) => {
   const { token, newPassword } = req.body;
   if (!token || !newPassword) return res.status(400).json({ error: "Missing fields" });
+  
+  // Validate password
+  const passwordValidation = validatePassword(newPassword);
+  if (!passwordValidation.valid) return res.status(400).json({ error: passwordValidation.error });
 
   const hash = bcrypt.hashSync(newPassword, 10);
   db.run("UPDATE users SET password = ?, password_reset_token = NULL WHERE password_reset_token = ?", [hash, token], function(err) {
@@ -197,7 +226,9 @@ router.post("/verify/:token", (req, res) => {
 
 router.post("/login", (req, res) => {
   const { username, password } = req.body; // username can be username or email
-  db.get("SELECT * FROM users WHERE username = ? OR email = ?", [username, username], (err, user: any) => {
+  // Support case-insensitive username lookup
+  const lowerUsername = username.toLowerCase();
+  db.get("SELECT * FROM users WHERE LOWER(username) = ? OR email = ?", [lowerUsername, username], (err, user: any) => {
     if (err || !user || !bcrypt.compareSync(password, user.password)) {
       return res.status(400).json({ error: "Invalid credentials" });
     }
@@ -217,6 +248,7 @@ router.post("/login", (req, res) => {
       gamesFogOfWar: user.games_fog_of_war || 0,
       skin: user.skin, 
       theme: user.theme,
+      is_guest: user.is_guest === 1,
       unlockedSkins: JSON.parse(user.unlocked_skins || '["classic"]')
     });
   });
@@ -237,7 +269,7 @@ router.post("/guest", (req, res) => {
     const guestId = this.lastID;
     (req.session as any).userId = guestId;
     (req.session as any).username = guestName;
-    res.json({ id: guestId, username: guestName, elo: 400, wins: 0, gamesPlayed: 0, skin: 'classic', theme: 'wooden', unlockedSkins: ['classic'] });
+    res.json({ id: guestId, username: guestName, elo: 400, wins: 0, gamesPlayed: 0, skin: 'classic', theme: 'wooden', is_guest: true, unlockedSkins: ['classic'] });
   });
 });
 
@@ -257,6 +289,7 @@ router.get("/me", (req, res) => {
       gamesFogOfWar: user.games_fog_of_war || 0,
       skin: user.skin,
       theme: user.theme,
+      is_guest: user.is_guest === 1,
       unlockedSkins: JSON.parse(user.unlocked_skins || '["classic"]')
     });
   });

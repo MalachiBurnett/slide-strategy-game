@@ -40,6 +40,7 @@ export interface UserData {
   skin: Skin;
   theme: Theme;
   unlockedSkins: Skin[];
+  is_guest?: boolean;
 }
 
 export interface LeaderboardEntry {
