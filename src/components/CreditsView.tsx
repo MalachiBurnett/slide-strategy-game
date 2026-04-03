@@ -17,7 +17,15 @@ export const CreditsView: React.FC<CreditsViewProps> = ({ onBack }) => {
       linkText: 'Portfolio'
     },
     {
-      name: 'Oscar Lowther, Reuben Storer, Jo Sheehy, Ethan Taylor, and Leo Berner',
+      name: 'Oscar Lowther',
+      role: 'John slide',
+      description: 'What can i say, he is just John slide',
+      icon: <Github className="w-6 h-6 text-[var(--primaryText)]" />,
+      link: null,
+      linkText: null
+    },
+    {
+      name: 'Reuben Storer, Jo Sheehy, Ethan Taylor, and Leo Berner',
       role: 'Features Lead',
       description: 'The people contantly suggesting new features and improvements.',
       icon: <Github className="w-6 h-6 text-[var(--primaryText)]" />,
