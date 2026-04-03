@@ -243,6 +243,22 @@ export default function App() {
     }
   };
 
+  const handleGoogleAuth = async (credential: string) => {
+    const res = await fetch('/api/google-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setUser(data);
+      setView('lobby');
+      checkReconnect(data.id);
+    } else {
+      setError(data.error);
+    }
+  };
+
   const handleLogout = async () => {
     await fetch('/api/logout', { method: 'POST' });
     setUser(null);
@@ -640,6 +656,7 @@ export default function App() {
         error={error}
         handleAuth={handleAuth}
         handleGuest={handleGuest}
+        handleGoogleAuth={handleGoogleAuth}
       />
     );
   }

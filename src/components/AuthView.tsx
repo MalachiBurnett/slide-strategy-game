@@ -1,7 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { User, LogIn, UserPlus, Trophy, Lock, Users, Mail, ArrowLeft, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { validateUsername, validatePassword, getPasswordRequirements } from '../utils/validation';
+
+declare global {
+  interface Window {
+    google: any;
+  }
+}
 
 interface AuthViewProps {
   authMode: 'login' | 'register';
@@ -15,6 +21,7 @@ interface AuthViewProps {
   error: string;
   handleAuth: (e: React.FormEvent) => void;
   handleGuest: () => void;
+  handleGoogleAuth: (credential: string) => void;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
@@ -29,6 +36,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   error,
   handleAuth,
   handleGuest,
+  handleGoogleAuth,
 }) => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordInput, setForgotPasswordInput] = useState('');
@@ -102,6 +110,28 @@ export const AuthView: React.FC<AuthViewProps> = ({
       setResendVerificationMessage('Network error. Please try again.');
     }
   };
+
+  useEffect(() => {
+    const handleCredentialResponse = (response: any) => {
+      handleGoogleAuth(response.credential);
+    };
+
+    if (window.google && !showForgotPassword && !showResendVerification) {
+      window.google.accounts.id.initialize({
+        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID,
+        callback: handleCredentialResponse
+      });
+      const parent = document.getElementById("googleSignInButton");
+      if (parent) {
+        window.google.accounts.id.renderButton(parent, {
+          theme: "outline",
+          size: "large",
+          width: 384, // Approximate width of the container
+          shape: "pill"
+        });
+      }
+    }
+  }, [authMode, showForgotPassword, showResendVerification, handleGoogleAuth]);
 
 
   if (showForgotPassword) {
@@ -392,6 +422,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
           >
             {authMode === 'login' ? "Create an Account" : "Back to Login"}
           </button>
+
+          <div id="googleSignInButton" className="w-full flex justify-center mt-2"></div>
+
           <div className="flex items-center gap-4 my-2">
             <div className="flex-1 h-px bg-[var(--primary)] opacity-20"></div>
             <span className="text-xs opacity-40 uppercase font-black tracking-widest">OR</span>

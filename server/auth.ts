@@ -6,11 +6,13 @@ import { getSkins, updateUnlockedSkins } from "./skins";
 import { Resend } from "resend";
 import { v4 as uuidv4 } from "uuid";
 import { validateUsername, validatePassword } from "./validation";
+import { OAuth2Client } from "google-auth-library";
 
 dotenv.config();
 
 const router = express.Router();
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 router.get("/leaderboard", (req, res) => {
   db.all("SELECT id, username, elo FROM users WHERE is_guest = 0 ORDER BY elo DESC LIMIT 10", (err, rows) => {
@@ -62,13 +64,17 @@ router.post("/register", (req, res) => {
       }
 
       try {
-        await resend.emails.send({
-          from: "verify@slide.wiizardsoftware.uk",
-          to: email,
-          subject: "Verify your Slide account",
-          html: `<p>Hello ${username},</p><p>Please verify your email by clicking the link below:</p><p><a href="https://slide.wiizardsoftware.uk/verify/${token}">Verify Email</a></p>`
-        });
-        res.json({ success: true, message: "Verification email sent!" });
+        if (resend) {
+          await resend.emails.send({
+            from: "verify@slide.wiizardsoftware.uk",
+            to: email,
+            subject: "Verify your Slide account",
+            html: `<p>Hello ${username},</p><p>Please verify your email by clicking the link below:</p><p><a href="https://slide.wiizardsoftware.uk/verify/${token}">Verify Email</a></p>`
+          });
+          res.json({ success: true, message: "Verification email sent!" });
+        } else {
+          res.json({ success: true, message: "User registered, but email sending is disabled locally." });
+        }
       } catch (sendErr) {
         console.error("Email send error:", sendErr);
         res.json({ success: true, message: "User registered, but failed to send verification email." });
@@ -252,6 +258,77 @@ router.post("/login", (req, res) => {
       unlockedSkins: JSON.parse(user.unlocked_skins || '["classic"]')
     });
   });
+});
+
+router.post("/google-auth", async (req, res) => {
+  const { credential } = req.body;
+  if (!credential) return res.status(400).json({ error: "No token provided" });
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    if (!payload) return res.status(400).json({ error: "Invalid token" });
+
+    const email = payload.email;
+    if (!email) return res.status(400).json({ error: "Email not provided by Google" });
+
+    db.get("SELECT * FROM users WHERE email = ?", [email], (err, user: any) => {
+      if (err) return res.status(500).json({ error: "Database error" });
+
+      if (user) {
+        // User exists, log them in
+        (req.session as any).userId = user.id;
+        (req.session as any).username = user.username;
+        return res.json({ 
+          id: user.id, 
+          username: user.username, 
+          elo: user.elo, 
+          wins: user.wins || 0,
+          gamesPlayed: user.games_played || 0,
+          gamesRandomSetup: user.games_random_setup || 0,
+          games1min: user.games_1min || 0,
+          gamesFogOfWar: user.games_fog_of_war || 0,
+          skin: user.skin, 
+          theme: user.theme,
+          is_guest: user.is_guest === 1,
+          unlockedSkins: JSON.parse(user.unlocked_skins || '["classic"]')
+        });
+      } else {
+        // New user, create them
+        // Try to use name as part of username, ensuring uniqueness
+        const baseName = (payload.name || "User").replace(/\s+/g, '').toLowerCase();
+        const username = baseName.substring(0, 10) + "_" + Math.random().toString(36).substring(2, 7);
+        
+        db.run("INSERT INTO users (username, email, elo, is_verified, is_guest) VALUES (?, ?, ?, ?, ?)", 
+          [username, email, 600, 1, 0], function(err) {
+          if (err) {
+            console.error("Error creating Google user:", err);
+            return res.status(500).json({ error: "Failed to create user" });
+          }
+          const newUserId = this.lastID;
+          (req.session as any).userId = newUserId;
+          (req.session as any).username = username;
+          res.json({ 
+            id: newUserId, 
+            username, 
+            elo: 600, 
+            wins: 0, 
+            gamesPlayed: 0, 
+            skin: 'classic', 
+            theme: 'wooden', 
+            is_guest: false, 
+            unlockedSkins: ['classic'] 
+          });
+        });
+      }
+    });
+  } catch (e) {
+    console.error("Google Auth error:", e);
+    res.status(401).json({ error: "Google Auth failed" });
+  }
 });
 
 router.post("/logout", (req, res) => {

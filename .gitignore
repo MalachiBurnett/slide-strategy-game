@@ -5,3 +5,4 @@ dist/
 *.log
 *.db
 .env
+*.env
