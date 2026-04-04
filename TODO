@@ -1,5 +1,10 @@
-add TOS and privacy policy
+key:
+# - someone else is working on it
+~ - need something else done first
++ - permanent todo (will never be completely finished)
+
+# add TOS and privacy policy
 make sure colors are random
-remove ai skins
++ remove ai skins
 set guest accounts to casual mode only (stop elo farming)
 fix reconnecting
