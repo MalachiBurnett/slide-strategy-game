@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart, Eye, HelpCircle } from 'lucide-react';
+import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart, Eye, HelpCircle, Menu, X } from 'lucide-react';
 import { UserData, LeaderboardEntry, Turn } from '../types/game';
 import { Socket } from 'socket.io-client';
 
@@ -71,6 +71,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 }) => {
   const [showPatchNotes, setShowPatchNotes] = useState(false);
   const [playersInGame, setPlayersInGame] = useState<Set<string>>(new Set());
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   React.useEffect(() => {
     if (showLeaderboard) {
@@ -102,62 +103,145 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   return (
     <div className="min-h-screen bg-[var(--bg)] p-4 sm:p-8 font-sans text-[var(--text)] transition-colors duration-500">
       <div className="max-w-4xl mx-auto">
-        <header className="flex flex-col sm:flex-row justify-between items-center gap-6 mb-8 sm:mb-12">
-          <div className="text-center sm:text-left">
-            <h1 className="text-4xl font-black tracking-tight text-[var(--primary)]">SLIDE</h1>
-            <div className="flex items-center justify-center sm:justify-start gap-2 mt-2">
+        <header className="flex justify-between items-center mb-8 sm:mb-12 relative">
+          <div className="text-left shrink-0">
+            <h1 className="text-4xl font-black tracking-tight text-[var(--primary)] leading-none">SLIDE</h1>
+            <div className="flex items-center gap-2 mt-1">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm opacity-80 font-bold">{onlineCount} Online</span>
+              <span className="text-sm opacity-60 font-bold">{onlineCount} Online</span>
             </div>
           </div>
-          <div className="flex items-center gap-4 sm:gap-6">
+
+          {/* Desktop Navigation */}
+          <div className="hidden lg:flex items-center gap-3">
             <button 
               onClick={() => { fetchLeaderboard(); setShowLeaderboard(true); }}
-              className="p-2 sm:p-3 bg-[var(--bgLight)] rounded-full shadow-md hover:shadow-lg transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-20"
-              title="Leaderboard"
+              className="flex items-center gap-2 px-4 py-2.5 bg-[var(--bgLight)] rounded-xl shadow-sm hover:shadow-md transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-10 font-bold text-sm"
             >
-              <Trophy className="w-5 h-5 sm:w-6 h-6" />
+              <Trophy className="w-4 h-4" />
+              Rankings
             </button>
             <button
               onClick={() => setView('cosmetics')}
-              className="px-6 py-3 bg-[var(--primary)] text-[var(--primaryText)] rounded-xl shadow-lg hover:scale-105 transition-all font-black"
+              className="px-5 py-2.5 bg-[var(--primary)] text-[var(--primaryText)] rounded-xl shadow-md hover:scale-105 transition-all font-black text-sm"
             >
               Skins
             </button>
             <button 
-              onClick={() => setView('credits')}
-              className="p-2 sm:p-3 bg-[var(--bgLight)] rounded-full shadow-md hover:shadow-lg transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-20"
-              title="Credits"
+              onClick={() => setShowTutorial(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[var(--bgLight)] rounded-xl shadow-sm hover:shadow-md transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-10 font-bold text-sm"
             >
-              <Heart className="w-5 h-5 sm:w-6 h-6" />
+              <HelpCircle className="w-4 h-4" />
+              Tutorial
             </button>
             <button 
-              onClick={() => setShowTutorial(true)}
-              className="p-2 sm:p-3 bg-[var(--bgLight)] rounded-full shadow-md hover:shadow-lg transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-20"
-              title="How to Play"
+              onClick={() => setView('credits')}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[var(--bgLight)] rounded-xl shadow-sm hover:shadow-md transition-all text-[var(--primary)] border-2 border-[var(--primary)] border-opacity-10 font-bold text-sm"
             >
-              <HelpCircle className="w-5 h-5 sm:w-6 h-6" />
+              <Heart className="w-4 h-4" />
+              Credits
             </button>
-            <div className="text-right flex flex-col items-end">
-              <button 
-                onClick={() => setView('profile')}
-                className="font-black text-lg sm:text-xl hover:text-[var(--primary)] transition-colors flex items-center gap-2"
-              >
-                {user?.username}
+            
+            <div className="h-8 w-px bg-[var(--primary)] opacity-10 mx-2"></div>
+
+            <button 
+              onClick={() => setView('profile')}
+              className="flex items-center gap-3 px-4 py-2 bg-[var(--bgLight)] border-2 border-[var(--primary)] border-opacity-20 rounded-2xl hover:border-opacity-100 transition-all shadow-sm"
+            >
+              <div className="text-right">
+                <p className="font-black text-sm leading-none mb-1">{user?.username}</p>
+                <p className="text-[10px] text-[var(--primary)] font-black opacity-60">{user?.elo} ELO</p>
+              </div>
+              <div className="w-8 h-8 bg-[var(--primary)] rounded-lg flex items-center justify-center text-[var(--primaryText)]">
                 <User className="w-5 h-5" />
-              </button>
-              <p className="text-xs sm:text-sm text-[var(--primary)] font-black">ELO: {user?.elo}</p>
-            </div>
+              </div>
+            </button>
+
             <button
               onClick={handleLogout}
               className="p-2 sm:p-3 bg-[var(--bgLight)] rounded-full shadow-md hover:shadow-lg transition-all text-gray-400 hover:text-red-500 border-2 border-red-500 border-opacity-10"
+              title="Logout"
             >
               <LogOut className="w-5 h-5 sm:w-6 h-6" />
             </button>
           </div>
-          </header>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+          {/* Mobile Menu Button */}
+          <button 
+            className="lg:hidden p-3 bg-[var(--bgLight)] border-2 border-[var(--primary)] border-opacity-10 rounded-xl text-[var(--primary)]"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+          >
+            {isMenuOpen ? <X /> : <Menu />}
+          </button>
+
+          {/* Mobile Navigation Dropdown */}
+          <AnimatePresence>
+            {isMenuOpen && (
+              <motion.div 
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="absolute top-full right-0 mt-4 w-full sm:w-64 bg-[var(--bgLight)] p-4 rounded-3xl shadow-2xl border-2 border-[var(--primary)] border-opacity-10 z-[100] lg:hidden space-y-3"
+              >
+                <button 
+                  onClick={() => { setView('profile'); setIsMenuOpen(false); }}
+                  className="w-full flex items-center justify-between p-4 bg-[var(--bg)] rounded-2xl border-2 border-[var(--primary)] border-opacity-20 mb-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-[var(--primary)] rounded-xl flex items-center justify-center text-[var(--primaryText)]">
+                      <User className="w-6 h-6" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-black text-base">{user?.username}</p>
+                      <p className="text-xs text-[var(--primary)] font-black">{user?.elo} ELO</p>
+                    </div>
+                  </div>
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    onClick={() => { setView('cosmetics'); setIsMenuOpen(false); }}
+                    className="flex flex-col items-center gap-2 p-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-sm"
+                  >
+                    <Zap className="w-5 h-5" />
+                    Skins
+                  </button>
+                  <button 
+                    onClick={() => { fetchLeaderboard(); setShowLeaderboard(true); setIsMenuOpen(false); }}
+                    className="flex flex-col items-center gap-2 p-4 bg-[var(--bg)] border-2 border-[var(--primary)] border-opacity-10 rounded-2xl font-black text-sm text-[var(--primary)]"
+                  >
+                    <Trophy className="w-5 h-5" />
+                    Rankings
+                  </button>
+                  <button 
+                    onClick={() => { setShowTutorial(true); setIsMenuOpen(false); }}
+                    className="flex flex-col items-center gap-2 p-4 bg-[var(--bg)] border-2 border-[var(--primary)] border-opacity-10 rounded-2xl font-black text-sm text-[var(--primary)]"
+                  >
+                    <HelpCircle className="w-5 h-5" />
+                    Tutorial
+                  </button>
+                  <button 
+                    onClick={() => { setView('credits'); setIsMenuOpen(false); }}
+                    className="flex flex-col items-center gap-2 p-4 bg-[var(--bg)] border-2 border-[var(--primary)] border-opacity-10 rounded-2xl font-black text-sm text-[var(--primary)]"
+                  >
+                    <Heart className="w-5 h-5" />
+                    Credits
+                  </button>
+                </div>
+
+                <button 
+                  onClick={handleLogout}
+                  className="w-full flex items-center justify-center gap-2 p-4 bg-[var(--bg)] text-gray-400 hover:text-red-500 rounded-2xl font-black text-sm mt-2 border-2 border-red-500 border-opacity-10 transition-all"
+                >
+                  <LogOut className="w-5 h-5 shadow-sm" />
+                  Sign Out
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </header>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--primary)] border-opacity-50"
@@ -247,7 +331,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
           <motion.div 
             whileHover={{ scale: 1.02 }}
-            className="bg-[var(--bg)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50 md:col-span-2"
+            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--accent)] border-opacity-50 md:col-span-2"
           >
             <div className="bg-[var(--primary)] bg-opacity-10 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
               <Hash className="w-7 h-7 sm:w-8 h-8 text-[var(--primaryText)]" />
@@ -316,15 +400,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             </button>
           </motion.div>
 
-          {error && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8 p-4 bg-red-500 bg-opacity-10 border border-red-500 border-opacity-20 rounded-2xl text-center text-red-500 font-medium"
-          >
-            {error}
-          </motion.div>
-          )}
+
 
           {privateCode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">

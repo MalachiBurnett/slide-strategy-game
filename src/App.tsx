@@ -169,6 +169,8 @@ export default function App() {
   const [timerW, setTimerW] = useState<number | null>(null);
   const [timerB, setTimerB] = useState<number | null>(null);
   const [activeEmote, setActiveEmote] = useState<string | null>(null);
+  const [showReconnectModal, setShowReconnectModal] = useState(false);
+  const [reconnectGameData, setReconnectGameData] = useState<any>(null);
 
   // Apply theme
   useEffect(() => {
@@ -183,24 +185,8 @@ export default function App() {
   const checkReconnect = useCallback((userId: number) => {
     socket.emit('check_reconnect', { userId }, (response: any) => {
       if (response.inGame) {
-        const data = response.gameData;
-        setGameId(data.gameId);
-        setPlayerColor(data.color);
-        setOpponentName(data.opponentName);
-        setTimerW(data.timerW);
-        setTimerB(data.timerB);
-        setGameState({
-          board: data.board,
-          turn: data.turn,
-          status: 'active',
-          winner: null,
-          skinW: data.skinW,
-          skinB: data.skinB,
-          variant: data.variant,
-          isRated: data.isRated
-        });
-        setIsRated(data.isRated);
-        setView('game');
+        setReconnectGameData(response.gameData);
+        setShowReconnectModal(true);
       }
     });
   }, []);
@@ -620,171 +606,232 @@ export default function App() {
     setActiveEmote(null);
   }, []);
 
-  if (view === 'verify' && verifyToken) {
-    return <VerifyView token={verifyToken} mode={verifyMode} onDone={() => {
-      window.history.replaceState({}, '', '/');
-      setVerifyToken(null);
-      if (verifyMode === 'auth') {
+  const renderActiveView = () => {
+    if (view === 'verify' && verifyToken) {
+      return <VerifyView token={verifyToken} mode={verifyMode} onDone={() => {
+        window.history.replaceState({}, '', '/');
+        setVerifyToken(null);
+        if (verifyMode === 'auth') {
+          setView('auth');
+          setAuthMode('login');
+        } else {
+          setView('lobby');
+        }
+      }} />;
+    }
+
+    if (view === 'reset-password' && resetToken) {
+      return <ResetPasswordView token={resetToken} onDone={() => {
+        window.history.replaceState({}, '', '/');
+        setResetToken(null);
         setView('auth');
         setAuthMode('login');
-      } else {
-        setView('lobby');
-      }
-    }} />;
-  }
+      }} />;
+    }
 
-  if (view === 'reset-password' && resetToken) {
-    return <ResetPasswordView token={resetToken} onDone={() => {
-      window.history.replaceState({}, '', '/');
-      setResetToken(null);
-      setView('auth');
-      setAuthMode('login');
-    }} />;
-  }
+    if (view === 'auth') {
+      return (
+        <AuthView 
+          authMode={authMode}
+          setAuthMode={setAuthMode}
+          username={username}
+          setUsername={setUsername}
+          email={email}
+          setEmail={setEmail}
+          password={password}
+          setPassword={setPassword}
+          error={error}
+          handleAuth={handleAuth}
+          handleGuest={handleGuest}
+          handleGoogleAuth={handleGoogleAuth}
+        />
+      );
+    }
 
-  if (view === 'auth') {
-    return (
-      <AuthView 
-        authMode={authMode}
-        setAuthMode={setAuthMode}
-        username={username}
-        setUsername={setUsername}
-        email={email}
-        setEmail={setEmail}
-        password={password}
-        setPassword={setPassword}
-        error={error}
-        handleAuth={handleAuth}
-        handleGuest={handleGuest}
-        handleGoogleAuth={handleGoogleAuth}
-      />
-    );
-  }
+    if (view === 'lobby') {
+      return (
+        <LobbyView 
+          user={user}
+          onlineCount={onlineCount}
+          timeControl={timeControl}
+          setTimeControl={setTimeControl}
+          variant={variant}
+          setVariant={setVariant}
+          queueCounts={queueCounts}
+          showLeaderboard={showLeaderboard}
+          setShowLeaderboard={setShowLeaderboard}
+          leaderboard={leaderboard}
+          fetchLeaderboard={fetchLeaderboard}
+          showTutorial={showTutorial}
+          setShowTutorial={setShowTutorial}
+          setUser={setUser}
+          setView={setView}
+          handleLogout={handleLogout}
+          startPublicMatch={startPublicMatch}
+          startLocalMatch={startLocalMatch}
+          createPrivateMatch={createPrivateMatch}
+          joinPrivateMatch={joinPrivateMatch}
+          joinCode={joinCode}
+          setJoinCode={setJoinCode}
+          privateCode={privateCode}
+          setPrivateCode={setPrivateCode}
+          setGameId={setGameId}
+          setPlayerColor={setPlayerColor}
+          error={error}
+          isRated={isRated}
+          toggleRated={toggleRated}
+          socket={socket}
+        />
+      );
+    }
 
-  if (view === 'lobby') {
-    return (
-      <LobbyView 
-        user={user}
-        onlineCount={onlineCount}
-        timeControl={timeControl}
-        setTimeControl={setTimeControl}
-        variant={variant}
-        setVariant={setVariant}
-        queueCounts={queueCounts}
-        showLeaderboard={showLeaderboard}
-        setShowLeaderboard={setShowLeaderboard}
-        leaderboard={leaderboard}
-        fetchLeaderboard={fetchLeaderboard}
-        showTutorial={showTutorial}
-        setShowTutorial={setShowTutorial}
-        setUser={setUser}
-        setView={setView}
-        handleLogout={handleLogout}
-        startPublicMatch={startPublicMatch}
-        startLocalMatch={startLocalMatch}
-        createPrivateMatch={createPrivateMatch}
-        joinPrivateMatch={joinPrivateMatch}
-        joinCode={joinCode}
-        setJoinCode={setJoinCode}
-        privateCode={privateCode}
-        setPrivateCode={setPrivateCode}
-        setGameId={setGameId}
-        setPlayerColor={setPlayerColor}
-        error={error}
-        isRated={isRated}
-        toggleRated={toggleRated}
-        socket={socket}
-      />
-    );
-  }
+    if (view === 'cosmetics' && user) {
+      return (
+        <CosmeticsView 
+          user={user}
+          leaderboard={leaderboard}
+          onBack={() => setView('lobby')}
+          onUpdateCosmetics={onUpdateCosmetics}
+        />
+      );
+    }
 
-  if (view === 'cosmetics' && user) {
-    return (
-      <CosmeticsView 
-        user={user}
-        leaderboard={leaderboard}
-        onBack={() => setView('lobby')}
-        onUpdateCosmetics={onUpdateCosmetics}
-      />
-    );
-  }
+    if (view === 'profile' && user) {
+      return (
+        <ProfileView 
+          user={user}
+          onBack={() => setView('lobby')}
+          onUpdateUser={(updated) => setUser(prev => prev ? { ...prev, ...updated } : null)}
+        />
+      );
+    }
 
-  if (view === 'profile' && user) {
-    return (
-      <ProfileView 
-        user={user}
-        onBack={() => setView('lobby')}
-        onUpdateUser={(updated) => setUser(prev => prev ? { ...prev, ...updated } : null)}
-      />
-    );
-  }
+    if (view === 'queue') {
+      return (
+        <QueueView 
+          timeControl={timeControl}
+          variant={variant}
+          queueCounts={queueCounts}
+          leaveQueue={leaveQueue}
+        />
+      );
+    }
 
-  if (view === 'queue') {
-    return (
-      <QueueView 
-        timeControl={timeControl}
-        variant={variant}
-        queueCounts={queueCounts}
-        leaveQueue={leaveQueue}
-      />
-    );
-  }
+    if (view === 'game' && gameState) {
+      return (
+        <GameView 
+          gameState={gameState}
+          isLocal={isLocal}
+          playerColor={playerColor}
+          user={user}
+          opponentName={opponentName}
+          timerW={timerW}
+          timerB={timerB}
+          formatTime={formatTime}
+          handleSquareClick={handleSquareClick}
+          selected={selected}
+          validMoves={validMoves}
+          isMovable={isMovable}
+          handleQuit={handleQuit}
+          showWinScreen={showWinScreen}
+          isWinScreenHidden={isWinScreenHidden}
+          setIsWinScreenHidden={setIsWinScreenHidden}
+          startPublicMatch={startPublicMatch}
+          error={error}
+          isRated={isRated}
+          onSendEmote={handleSendEmote}
+          activeEmote={activeEmote}
+          onEmoteComplete={handleEmoteComplete}
+        />
+      );
+    }
 
-  if (view === 'game' && gameState) {
-    return (
-      <GameView 
-        gameState={gameState}
-        isLocal={isLocal}
-        playerColor={playerColor}
-        user={user}
-        opponentName={opponentName}
-        timerW={timerW}
-        timerB={timerB}
-        formatTime={formatTime}
-        handleSquareClick={handleSquareClick}
-        selected={selected}
-        validMoves={validMoves}
-        isMovable={isMovable}
-        handleQuit={handleQuit}
-        showWinScreen={showWinScreen}
-        isWinScreenHidden={isWinScreenHidden}
-        setIsWinScreenHidden={setIsWinScreenHidden}
-        startPublicMatch={startPublicMatch}
-        error={error}
-        isRated={isRated}
-        onSendEmote={handleSendEmote}
-        activeEmote={activeEmote}
-        onEmoteComplete={handleEmoteComplete}
-      />
-    );
-  }
+    if (view === 'credits') {
+      return (
+        <CreditsView 
+          onBack={() => setView('lobby')}
+        />
+      );
+    }
 
-  if (view === 'credits') {
-    return (
-      <CreditsView 
-        onBack={() => setView('lobby')}
-      />
-    );
-  }
+    if (view === 'spectate' && user) {
+      return (
+        <SpectateView
+          user={user}
+          setView={setView}
+          socket={socket}
+          formatTime={formatTime}
+        />
+      );
+    }
 
-  if (view === 'spectate' && user) {
-    return (
-      <SpectateView
-        user={user}
-        setView={setView}
-        socket={socket}
-        formatTime={formatTime}
-      />
-    );
-  }
+    if (view === 'tutorial') {
+      return (
+        <TutorialView 
+          onComplete={() => setView('lobby')}
+        />
+      );
+    }
 
-  if (view === 'tutorial') {
-    return (
-      <TutorialView 
-        onComplete={() => setView('lobby')}
-      />
-    );
-  }
+    return null;
+  };
 
-  return null;
+  return (
+    <>
+      {renderActiveView()}
+      {showReconnectModal && reconnectGameData && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-[var(--bgLight)] p-8 rounded-[2.5rem] shadow-2xl w-full max-w-sm border-b-8 border-[var(--primary)] text-center text-[var(--text)]"
+          >
+            <h2 className="text-2xl font-black mb-2">Active Game Found!</h2>
+            <p className="opacity-60 mb-6 font-medium">You were in the middle of a game against <span className="text-[var(--primary)] font-bold">{reconnectGameData.opponentName}</span>.</p>
+            
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={() => {
+                  const data = reconnectGameData;
+                  setGameId(data.gameId);
+                  setPlayerColor(data.color);
+                  setOpponentName(data.opponentName);
+                  setTimerW(data.timerW);
+                  setTimerB(data.timerB);
+                  setGameState({
+                    board: data.board,
+                    turn: data.turn,
+                    status: 'active',
+                    winner: null,
+                    skinW: data.skinW,
+                    skinB: data.skinB,
+                    variant: data.variant,
+                    isRated: data.isRated
+                  });
+                  setIsRated(data.isRated);
+                  setView('game');
+                  setShowReconnectModal(false);
+                  setReconnectGameData(null);
+                }}
+                className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-lg hover:scale-105 active:scale-95 transition-all shadow-xl shadow-[var(--primary)]/20"
+              >
+                Re-join Game
+              </button>
+              
+              <button 
+                onClick={() => {
+                  socket.emit('forfeit', { gameId: reconnectGameData.gameId, userId: user?.id });
+                  setShowReconnectModal(false);
+                  setReconnectGameData(null);
+                }}
+                className="w-full py-4 bg-red-500/10 text-red-500 border-2 border-red-500/20 rounded-2xl font-black hover:bg-red-500 hover:text-white transition-all"
+              >
+                Resign
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </>
+  );
 }

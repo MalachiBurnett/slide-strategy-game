@@ -79,7 +79,10 @@ export function initializeDb() {
         increment INTEGER,
         last_move_time INTEGER,
         variant TEXT DEFAULT 'classic',
-        is_rated BOOLEAN DEFAULT 1
+        is_rated BOOLEAN DEFAULT 1,
+        moves TEXT DEFAULT '[]',
+        start_board TEXT,
+        variant_data TEXT DEFAULT '[]'
       )`, (err) => { if (err) reject(err); });
 
       const gameMigrations = [
@@ -92,7 +95,10 @@ export function initializeDb() {
         { name: "variant", type: "TEXT DEFAULT 'classic'" },
         { name: "is_rated", type: "BOOLEAN DEFAULT 1" },
         { name: "skin_w", type: "TEXT DEFAULT 'classic'" },
-        { name: "skin_b", type: "TEXT DEFAULT 'classic'" }
+        { name: "skin_b", type: "TEXT DEFAULT 'classic'" },
+        { name: "moves", type: "TEXT DEFAULT '[]'" },
+        { name: "start_board", type: "TEXT" },
+        { name: "variant_data", type: "TEXT DEFAULT '[]'" }
       ];
 
       gameMigrations.forEach(col => {
@@ -107,6 +113,25 @@ export function initializeDb() {
         spectator_id INTEGER,
         target_player_id INTEGER,
         PRIMARY KEY (spectator_id, target_player_id)
+      )`, (err) => { if (err) reject(err); });
+      
+      db.run(`CREATE TABLE IF NOT EXISTS game_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        game_id TEXT,
+        player_w_id INTEGER,
+        player_b_id INTEGER,
+        player_w_username TEXT,
+        player_b_username TEXT,
+        player_w_elo INTEGER,
+        player_b_elo INTEGER,
+        winner TEXT,
+        outcome TEXT,
+        moves TEXT,
+        variant TEXT,
+        start_board TEXT,
+        variant_data TEXT,
+        is_rated BOOLEAN,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
       )`, (err) => { if (err) reject(err); });
 
       resolve();

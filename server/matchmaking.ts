@@ -3,6 +3,12 @@ import { db } from "./db";
 import { INITIAL_BOARD, getValidMoves, checkWin, calculateEloChange, generateBoard } from "./gameLogic";
 import { updateUnlockedSkins } from "./skins";
 
+function toNotation(r: number, c: number): string {
+  const letters = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const numbers = ['6', '5', '4', '3', '2', '1'];
+  return letters[c] + numbers[r];
+}
+
 const socketToUser = new Map<string, number>();
 const socketToGame = new Map<string, string>();
 const userToGame = new Map<number, string>(); // userId -> gameId
@@ -226,8 +232,8 @@ export function setupMatchmaking(io: Server) {
         else if (data.timeControl === '3|2') { initialTimer = 180; increment = 2; }
         else if (data.timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
 
-        db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant, skin_w, is_rated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [gameId, board, 'W', data.userId, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variant, skinW, data.isRated ? 1 : 0]);
+        db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant, skin_w, is_rated, start_board) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [gameId, board, 'W', data.userId, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variant, skinW, data.isRated ? 1 : 0, board]);
         
         // Track game for spectating even if waiting
         userToGame.set(data.userId, gameId);
@@ -318,10 +324,16 @@ export function setupMatchmaking(io: Server) {
         board[data.to.r][data.to.c] = piece;
         board[data.from.r][data.from.c] = '0';
 
+        let moveNotation = toNotation(data.from.r, data.from.c) + "-" + toNotation(data.to.r, data.to.c);
+        let variantLog = "";
+
         if (game.variant === 'schizophrenic') {
           const randR = Math.floor(Math.random() * 6);
           const randC = Math.floor(Math.random() * 6);
-          board[randR][randC] = ['0', 'W', 'B'][Math.floor(Math.random() * 3)];
+          const oldVal = board[randR][randC];
+          const newVal = ['0', 'W', 'B'][Math.floor(Math.random() * 3)];
+          board[randR][randC] = newVal;
+          variantLog = `${toNotation(randR, randC)}:${oldVal}->${newVal}`;
         }
 
         const winResult = checkWin(board);
@@ -337,8 +349,13 @@ export function setupMatchmaking(io: Server) {
           timerData.turn = nextTurn;
           timerData.lastMoveTime = now;
 
-          db.run("UPDATE games SET board = ?, turn = ?, timer_w = ?, timer_b = ?, last_move_time = ? WHERE id = ?",
-            [JSON.stringify(board), nextTurn, timerData.timerW, timerData.timerB, now, data.gameId]);
+          const moves = JSON.parse(game.moves || '[]');
+          moves.push(moveNotation);
+          const variantData = JSON.parse(game.variant_data || '[]');
+          if (variantLog) variantData.push({ moveIndex: moves.length - 1, log: variantLog });
+
+          db.run("UPDATE games SET board = ?, turn = ?, timer_w = ?, timer_b = ?, last_move_time = ?, moves = ?, variant_data = ? WHERE id = ?",
+            [JSON.stringify(board), nextTurn, timerData.timerW, timerData.timerB, now, JSON.stringify(moves), JSON.stringify(variantData), data.gameId]);
 
           if (winner) {
             handleGameEnd(io, data.gameId, winner, 'win', null, board, winResult.line, timerData);
@@ -502,8 +519,8 @@ function startGame(io: Server, userIdW: number, userIdB: number, socketIdB: stri
     const skinW = userW?.skin || 'classic';
     const skinB = userB?.skin || 'classic';
 
-    db.run("INSERT INTO games (id, board, turn, player_w, player_b, status, timer_w, timer_b, increment, last_move_time, variant, skin_w, skin_b, is_rated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [gameId, JSON.stringify(board), 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant, skinW, skinB, isRated ? 1 : 0]);
+    db.run("INSERT INTO games (id, board, turn, player_w, player_b, status, timer_w, timer_b, increment, last_move_time, variant, skin_w, skin_b, is_rated, start_board) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [gameId, JSON.stringify(board), 'W', userIdW, userIdB, 'active', initialTimer, initialTimer, increment, Date.now(), variant, skinW, skinB, isRated ? 1 : 0, JSON.stringify(board)]);
 
     // Track active games for spectating
     userToGame.set(userIdW, gameId);
@@ -611,6 +628,20 @@ function handleGameEnd(io: Server, gameId: string, winner: string | null, reason
         db.run(`UPDATE users SET ${winUpdatesUnrated.join(", ")} WHERE id = ?`, winnerParams.slice(1), () => updateUnlockedSkins(winnerId));
         db.run(`UPDATE users SET ${loseUpdatesUnrated.join(", ")} WHERE id = ?`, loserParams.slice(1), () => updateUnlockedSkins(loserId));
       }
+
+
+      // Log the game
+      db.get("SELECT username, elo FROM users WHERE id = ?", [playerW], (err, uW: any) => {
+        db.get("SELECT username, elo FROM users WHERE id = ?", [playerB], (err, uB: any) => {
+          db.run(`INSERT INTO game_logs (
+            game_id, player_w_id, player_b_id, player_w_username, player_b_username, 
+            player_w_elo, player_b_elo, winner, outcome, moves, variant, start_board, variant_data, is_rated
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+            gameId, playerW, playerB, uW?.username, uB?.username,
+            uW?.elo, uB?.elo, finalWinner, reason, game.moves, game.variant, game.start_board, game.variant_data, game.is_rated
+          ]);
+        });
+      });
 
       emitFinalUpdate(game.is_rated ? change : 0);
     });

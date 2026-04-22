@@ -17,6 +17,8 @@ import { setupMatchmaking } from "./matchmaking";
 import { getSkins } from "./skins";
 import { db } from "./db";
 
+import { runAllTests } from "./tests";
+
 const SQLiteStore = connectSqlite3(session);
 const app = express();
 const httpServer = createServer(app);
@@ -25,6 +27,7 @@ const PORT = Number(process.env.PORT) || 3000;
 
 async function startServer() {
   await initializeDb();
+  await runAllTests();
 
   app.use(express.json());
   app.use(cookieParser());

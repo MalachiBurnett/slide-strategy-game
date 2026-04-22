@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { User, LogIn, UserPlus, Trophy, Lock, Users, Mail, ArrowLeft, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { validateUsername, validatePassword, getPasswordRequirements } from '../utils/validation';
+import { motion, AnimatePresence } from 'motion/react';
+import { User, LogIn, UserPlus, Trophy, Lock, Users, Mail, ArrowLeft, CheckCircle, AlertCircle, Loader2, ChevronDown, HelpCircle } from 'lucide-react';
+import { validateUsername, validatePassword, getPasswordRequirements, validateEmail } from '../utils/validation';
 
 declare global {
   interface Window {
@@ -46,17 +46,38 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [resendVerificationInput, setResendVerificationInput] = useState('');
   const [resendVerificationStatus, setResendVerificationStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [resendVerificationMessage, setResendVerificationMessage] = useState('');
+  const [showOptions, setShowOptions] = useState(false);
   const [usernameError, setUsernameError] = useState<string>('');
+  const [emailError, setEmailError] = useState<string>('');
   const [passwordError, setPasswordError] = useState<string>('');
   const [passwordRequirements, setPasswordRequirements] = useState(getPasswordRequirements(''));
 
+  const clearFields = () => {
+    setUsername('');
+    setEmail('');
+    setPassword('');
+    setUsernameError('');
+    setEmailError('');
+    setPasswordError('');
+  };
+
   const handleUsernameChange = (value: string) => {
     setUsername(value);
-    if (authMode === 'register' && value) {
+    if (value) {
       const validation = validateUsername(value);
       setUsernameError(validation.valid ? '' : validation.error || '');
     } else {
       setUsernameError('');
+    }
+  };
+
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    if (value) {
+      const validation = validateEmail(value);
+      setEmailError(validation.valid ? '' : validation.error || '');
+    } else {
+      setEmailError('');
     }
   };
 
@@ -126,12 +147,16 @@ export const AuthView: React.FC<AuthViewProps> = ({
         window.google.accounts.id.renderButton(parent, {
           theme: "outline",
           size: "large",
-          width: 384, // Approximate width of the container
-          shape: "pill"
+          width: parent.offsetWidth || 384,
+          shape: "pill",
+          text: "signin_with",
+          logo_alignment: "left"
         });
       }
     }
   }, [authMode, showForgotPassword, showResendVerification, handleGoogleAuth]);
+
+  const faviconSvg = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><style>.wood-light { fill: %23decba4; } .wood-dark { fill: %23a67c52; } .wood-border { fill: %235d2e0a; } .wood-bg { fill: %235d2e0a; } .piece-black { fill: %232a2a2a; } .piece-border { stroke: %23333; stroke-width: 1.5; }</style></defs><rect width='100' height='100' rx='20' ry='20' class='wood-bg'/><rect x='8' y='8' width='84' height='84' rx='16' ry='16' class='wood-border'/><rect x='12' y='12' width='76' height='76' rx='12' ry='12' class='wood-light'/><circle cx='50' cy='50' r='24' class='piece-black piece-border'/><circle cx='50' cy='50' r='20' class='piece-black' opacity='0.95'/></svg>";
 
 
   if (showForgotPassword) {
@@ -304,13 +329,10 @@ export const AuthView: React.FC<AuthViewProps> = ({
         animate={{ opacity: 1, y: 0 }}
         className="bg-[var(--bgLight)] p-8 rounded-3xl shadow-2xl w-full max-w-md border-b-8 border-[var(--accent)] border-opacity-50"
       >
-        <div className="flex justify-center mb-6">
-          <div className="bg-[var(--primary)] p-4 rounded-2xl shadow-lg">
-            <Trophy className="w-12 h-12 text-[var(--bg)]" />
-          </div>
+        <div className="flex items-center justify-center gap-4 mb-8">
+          <img src={faviconSvg} alt="Logo" className="w-12 h-12 shadow-lg rounded-xl" />
+          <h1 className="text-4xl font-black tracking-tighter">Slide</h1>
         </div>
-        <h1 className="text-4xl font-black text-center mb-2 tracking-tight">SLIDE</h1>
-        <p className="text-center opacity-40 mb-10 italic font-medium">A minimalist strategy game</p>
         
         <form onSubmit={handleAuth} className="space-y-4">
           <div className="relative">
@@ -324,7 +346,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               value={username}
               onChange={(e) => handleUsernameChange(e.target.value)}
             />
-            {usernameError && authMode === 'register' && (
+            {usernameError && (
               <p className="mt-2 text-xs text-red-500 font-medium flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
                 {usernameError}
@@ -343,10 +365,18 @@ export const AuthView: React.FC<AuthViewProps> = ({
               <input 
                 type="email" 
                 placeholder="Email Address" 
-                className="w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border border-[var(--primary)] border-opacity-10 rounded-2xl focus:ring-2 focus:ring-[var(--primary)] outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40"
+                className={`w-full pl-12 pr-4 py-4 bg-[var(--bg)] bg-opacity-5 border rounded-2xl focus:ring-2 outline-none transition-all text-[var(--text)] font-bold placeholder:font-normal placeholder:opacity-40 ${
+                  emailError ? 'border-red-500 focus:ring-red-500' : 'border-[var(--primary)] border-opacity-10 focus:ring-[var(--primary)]'
+                }`}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => handleEmailChange(e.target.value)}
               />
+              {emailError && (
+                <p className="mt-2 text-xs text-red-500 font-medium flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {emailError}
+                </p>
+              )}
             </div>
           )}
           <div className="relative">
@@ -391,7 +421,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           
           <button 
             type="submit" 
-            disabled={authMode === 'register' && (!!usernameError || !!passwordError || !username || !password || !email)}
+            disabled={(authMode === 'register' && (!!usernameError || !!passwordError || !!emailError || !username || !password || !email)) || (authMode === 'login' && (!username || !password))}
             className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-xl shadow-[var(--primary)]/20 mt-6 disabled:opacity-50"
           >
             {authMode === 'login' ? <LogIn className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
@@ -399,44 +429,78 @@ export const AuthView: React.FC<AuthViewProps> = ({
           </button>
         </form>
 
-        <div className="mt-8 flex flex-col gap-4">
-          {authMode === 'login' && (
+        <div className="mt-6 flex flex-col gap-4">
+          {authMode === 'login' ? (
             <>
               <button 
-                onClick={() => setShowForgotPassword(true)}
-                className="text-sm text-[var(--primary)] hover:underline text-center font-bold tracking-wide"
+                onClick={() => { clearFields(); setAuthMode('register'); }}
+                className="w-full py-4 bg-transparent border-2 border-[var(--primary)] text-[var(--primary)] rounded-2xl font-black text-lg hover:bg-[var(--primary)] hover:text-[var(--bg)] transition-all flex items-center justify-center gap-3"
               >
-                Forgot Password?
+                <UserPlus className="w-6 h-6" />
+                Create Account
               </button>
+
+              <div id="googleSignInButton" className="w-full h-[56px] overflow-hidden rounded-2xl flex justify-center border-2 border-[var(--primary)] border-opacity-10 shadow-sm hover:border-opacity-30 transition-all"></div>
+
+              <div className="flex items-center gap-4 py-2">
+                <div className="flex-1 h-px bg-[var(--primary)] opacity-10"></div>
+                <span className="text-[10px] opacity-30 uppercase font-black tracking-widest">ALTERNATIVE</span>
+                <div className="flex-1 h-px bg-[var(--primary)] opacity-10"></div>
+              </div>
+
               <button 
-                onClick={() => setShowResendVerification(true)}
-                className="text-sm text-[var(--primary)] hover:underline text-center font-bold tracking-wide"
+                onClick={handleGuest}
+                className="w-full py-4 bg-transparent border-2 border-[var(--primary)] text-[var(--primary)] rounded-2xl font-black text-lg hover:bg-[var(--primary)] hover:text-[var(--bg)] transition-all flex items-center justify-center gap-3"
               >
-                Resend Verification Email?
+                <Users className="w-6 h-6" />
+                Play as Guest
               </button>
+
+              <div className="relative">
+                <button 
+                  onClick={() => setShowOptions(!showOptions)}
+                  className="w-full py-3 flex items-center justify-center gap-2 text-sm text-[var(--primary)] font-bold opacity-60 hover:opacity-100 transition-all"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                  Can't log in?
+                  <motion.div animate={{ rotate: showOptions ? 180 : 0 }}>
+                    <ChevronDown className="w-4 h-4" />
+                  </motion.div>
+                </button>
+                
+                <AnimatePresence>
+                  {showOptions && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden flex flex-col items-center gap-2 pt-2 pb-4"
+                    >
+                      <button 
+                        onClick={() => setShowForgotPassword(true)}
+                        className="text-sm text-[var(--primary)] hover:underline font-bold"
+                      >
+                        Reset Password
+                      </button>
+                      <button 
+                        onClick={() => setShowResendVerification(true)}
+                        className="text-sm text-[var(--primary)] hover:underline font-bold"
+                      >
+                        Resend Verification Email
+                      </button>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </>
+          ) : (
+            <button 
+              onClick={() => { clearFields(); setAuthMode('login'); }}
+              className="text-sm text-[var(--primary)] hover:underline text-center font-bold tracking-wide uppercase mt-4"
+            >
+              Back to Login
+            </button>
           )}
-          <button 
-            onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
-            className="text-sm text-[var(--primary)] hover:underline text-center font-bold tracking-wide uppercase"
-          >
-            {authMode === 'login' ? "Create an Account" : "Back to Login"}
-          </button>
-
-          <div id="googleSignInButton" className="w-full flex justify-center mt-2"></div>
-
-          <div className="flex items-center gap-4 my-2">
-            <div className="flex-1 h-px bg-[var(--primary)] opacity-20"></div>
-            <span className="text-xs opacity-40 uppercase font-black tracking-widest">OR</span>
-            <div className="flex-1 h-px bg-[var(--primary)] opacity-20"></div>
-          </div>
-          <button 
-            onClick={handleGuest}
-            className="w-full py-4 bg-transparent border-2 border-[var(--primary)] text-[var(--primary)] rounded-2xl font-black hover:bg-[var(--primary)] hover:text-[var(--bg)] transition-all flex items-center justify-center gap-3"
-          >
-            <Users className="w-6 h-6" />
-            Play as Guest
-          </button>
         </div>
         
         {error && <p className="mt-4 text-red-500 text-center text-sm font-medium">{error}</p>}

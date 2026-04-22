@@ -1,6 +1,7 @@
 /**
  * Validates username format
  * - Max 20 alphanumeric characters
+ * - No @ symbol (enforced by regex)
  * - Returns { valid: boolean, error?: string }
  */
 export function validateUsername(username: string): { valid: boolean; error?: string } {
@@ -13,9 +14,23 @@ export function validateUsername(username: string): { valid: boolean; error?: st
   }
   
   if (!/^[a-zA-Z0-9_]+$/.test(username)) {
-    return { valid: false, error: 'Username can only contain letters, numbers, and underscores' };
+    return { valid: false, error: 'Username can only contain letters, numbers, and underscores (no @)' };
   }
   
+  return { valid: true };
+}
+
+/**
+ * Validates email format
+ */
+export function validateEmail(email: string): { valid: boolean; error?: string } {
+  if (!email || email.trim().length === 0) {
+    return { valid: false, error: 'Email required' };
+  }
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return { valid: false, error: 'Invalid email format' };
+  }
   return { valid: true };
 }
 
