@@ -8,6 +8,9 @@ export const db = new sqlite3.Database(dbPath, (err) => {
     console.error("Database connection error:", err);
   } else {
     console.log("Connected to SQLite database.");
+    // Enable WAL mode and set busy timeout to prevent SQLITE_BUSY errors
+    db.run("PRAGMA journal_mode = WAL");
+    db.run("PRAGMA busy_timeout = 5000");
   }
 });
 
@@ -31,7 +34,7 @@ export function initializeDb() {
         games_random_setup INTEGER DEFAULT 0,
         games_1min INTEGER DEFAULT 0,
         games_fog_of_war INTEGER DEFAULT 0
-      )`, (err) => { if (err) reject(err); });
+      )`, (err) => { if (err) return reject(err); });
 
       const userMigrations = [
         { col: "email", type: "TEXT UNIQUE" },
@@ -62,7 +65,7 @@ export function initializeDb() {
 
       db.run(`CREATE TABLE IF NOT EXISTS banned_names (
         name TEXT PRIMARY KEY
-      )`, (err) => { if (err) reject(err); });
+      )`, (err) => { if (err) return reject(err); });
 
       db.run(`CREATE TABLE IF NOT EXISTS games (
         id TEXT PRIMARY KEY,
@@ -83,7 +86,7 @@ export function initializeDb() {
         moves TEXT DEFAULT '[]',
         start_board TEXT,
         variant_data TEXT DEFAULT '[]'
-      )`, (err) => { if (err) reject(err); });
+      )`, (err) => { if (err) return reject(err); });
 
       const gameMigrations = [
         { name: "is_private", type: "BOOLEAN" },
@@ -113,7 +116,7 @@ export function initializeDb() {
         spectator_id INTEGER,
         target_player_id INTEGER,
         PRIMARY KEY (spectator_id, target_player_id)
-      )`, (err) => { if (err) reject(err); });
+      )`, (err) => { if (err) return reject(err); });
       
       db.run(`CREATE TABLE IF NOT EXISTS game_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -132,9 +135,10 @@ export function initializeDb() {
         variant_data TEXT,
         is_rated BOOLEAN,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-      )`, (err) => { if (err) reject(err); });
-
-      resolve();
+      )`, (err) => { 
+        if (err) reject(err); 
+        else resolve();
+      });
     });
   });
 }
