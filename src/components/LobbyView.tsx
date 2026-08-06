@@ -601,33 +601,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           </div>
         )}
 
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-12 bg-[var(--primary)] p-8 rounded-3xl shadow-xl border-b-8 border-[var(--secondary)] text-[var(--bg)] md:col-span-2"
-        >
-          <h3 className="text-2xl font-bold mb-4 flex items-center gap-2">
-            <Trophy className="w-6 h-6" />
-            Join the Slide Bot Challenge!
-          </h3>
-          <div className="space-y-4 text-sm sm:text-base leading-relaxed opacity-90">
-            <p>Are you ready to prove your coding prowess? We are hosting a competition to find the official AI for Slide! We’re looking for a bot that can master the momentum-based movement and sharp tactical lines of our 6x6 grid.</p>
-            <p>The challenge is simple: build a Python-based bot that can outsmart the rest in a full round-robin tournament. The creator of the winning bot will not only see their code integrated as the site’s official "Play vs. Bot" mode but will also walk away with a £5 prize.</p>
-            <p>Whether you’re a Minimax master or just love a good logic puzzle, we want to see what you can build!</p>
-            <div className="pt-4">
-              <p className="font-bold mb-2">Ready to start?</p>
-              <p>Download the DevKit below to get the game engine, a Tkinter testing UI, and full submission instructions:</p>
-              <a 
-                href="https://github.com/MalachiBurnett/bot-comp/" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 mt-4 px-6 py-3 bg-[var(--bg)] text-[var(--primary)] rounded-xl font-bold hover:opacity-90 transition-all"
-              >
-                👉 Download the Slide DevKit on GitHub
-              </a>
-            </div>
-          </div>
-        </motion.div>
+
           </div>
       </div>
     </div>
