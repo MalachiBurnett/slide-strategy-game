@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Slide Strategy Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #1a1a1a;
+      --card-bg: #262626;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent: #d97706;
+      --border: #404040;
+    }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      line-height: 1.6;
+      margin: 0;
+      padding: 2rem 1rem;
+    }
+    .legal-shell {
+      max-width: 800px;
+      margin: 0 auto;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 1rem;
+      padding: 2.5rem;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    .legal-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .legal-header a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+      display: inline-block;
+      margin-bottom: 1rem;
+    }
+    .legal-header a:hover {
+      text-decoration: underline;
+    }
+    h1, h2, h3 {
+      font-family: 'Outfit', sans-serif;
+      color: #ffffff;
+    }
+    h1 {
+      font-size: 2.25rem;
+      margin: 0 0 0.5rem 0;
+    }
+    .last-reviewed {
+      color: var(--text-muted);
+      font-size: 0.875rem;
+      margin-bottom: 1rem;
+    }
+    .legal-nav {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 1rem;
+    }
+    .legal-document p, .legal-document li {
+      color: var(--text-main);
+    }
+    .legal-document ul {
+      padding-left: 1.5rem;
+    }
+    .legal-document li {
+      margin-bottom: 0.5rem;
+    }
+    h2 {
+      font-size: 1.5rem;
+      margin-top: 2rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+    a {
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+  <div class="legal-shell">
+    <header class="legal-header">
+      <a href="/">← Back to Slide Strategy Game</a>
+      <h1>Privacy Policy</h1>
+      <p class="last-reviewed">Last reviewed: July 2026</p>
+      <p style="margin: 0; color: var(--text-muted);">Provided by: Malachi Burnett trading as Wiizard Software (<a href="https://wiizardsoftware.uk" target="_blank">wiizardsoftware.uk</a>)</p>
+      <nav class="legal-nav" aria-label="Legal documents">
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/terms">Terms of Service</a>
+      </nav>
+    </header>
+    <main class="legal-document">
+      <h2>1. Overview</h2>
+      <p>This Privacy Policy explains how personal information is handled when you use Slide Strategy Game (<code>slide.wiizardsoftware.uk</code>). Slide Strategy Game is an open-source real-time multiplayer 6x6 grid strategy game developed and provided by Malachi Burnett trading as Wiizard Software.</p>
+
+      <h2>2. Information We Collect</h2>
+      <p>We collect and process only the information necessary to provide a secure, fair, and engaging multiplayer gaming experience:</p>
+      <ul>
+        <li><strong>Account Information</strong>: Username, email address, and securely hashed passwords (using bcrypt) when you register. If you sign in via Google OAuth, we receive your Google account identifier and email address.</li>
+        <li><strong>Gameplay & Statistics</strong>: ELO rating, match history, wins, games played, variant preferences, and cosmetic unlocks (<code>skin</code>, <code>theme</code>).</li>
+        <li><strong>Communication & Authentication</strong>: Tokens used for email verification and password resets, and automated emails sent via Resend.</li>
+        <li><strong>Technical & Security Logs</strong>: IP addresses, session identifiers (stored via <code>express-session</code> and SQLite session store), and security logs necessary to prevent cheating, abuse, and unauthorised access.</li>
+      </ul>
+
+      <h2>3. How We Use Information</h2>
+      <p>Your information is used strictly for:</p>
+      <ul>
+        <li>Managing your user account, authentication, and secure login.</li>
+        <li>Operating multiplayer matchmaking, leaderboards, and spectator modes.</li>
+        <li>Tracking game statistics and ELO ranking.</li>
+        <li>Sending essential account emails (verification, password resets).</li>
+        <li>Protecting the service against abuse, cheating, and security threats.</li>
+      </ul>
+
+      <h2>4. Lawful Basis for Processing (GDPR)</h2>
+      <p>Under UK and EU GDPR, our lawful bases for processing your data include:</p>
+      <ul>
+        <li><strong>Performance of a Contract</strong>: Providing you with access to Slide Strategy Game, matchmaking, and account features.</li>
+        <li><strong>Legitimate Interests</strong>: Ensuring game security, preventing cheating, maintaining leaderboards, and improving platform reliability.</li>
+        <li><strong>Legal Obligation</strong>: Complying with applicable legal and regulatory requirements.</li>
+        <li><strong>Consent</strong>: Where you voluntarily register or opt in.</li>
+      </ul>
+
+      <h2>5. Data Sharing & Third-Party Processors</h2>
+      <p>We do not sell, rent, or trade your personal information. We share data only with trusted infrastructure and service providers bound by strict data protection standards:</p>
+      <ul>
+        <li><strong>Resend</strong>: For delivering email verification and password reset notifications.</li>
+        <li><strong>Google LLC</strong>: For optional Google OAuth authentication.</li>
+        <li><strong>Hosting & Infrastructure</strong>: Secure server hosting providers maintaining SSL/TLS encryption and firewall protection.</li>
+      </ul>
+
+      <h2>6. Data Security</h2>
+      <p>We implement robust technical and organizational security measures, including HTTPS encryption in transit, bcrypt password hashing, parameterized database queries, and restricted server administration access.</p>
+
+      <h2>7. Data Retention</h2>
+      <p>Account data and match logs are retained for as long as your account remains active. If you request account deletion, your personal data and account records will be permanently deleted or anonymised, subject to any necessary security log retention.</p>
+
+      <h2>8. Your Rights Under GDPR</h2>
+      <p>You have the right to:</p>
+      <ul>
+        <li>Access the personal data we hold about you.</li>
+        <li>Request correction of inaccurate information.</li>
+        <li>Request deletion of your account and personal data.</li>
+        <li>Restrict or object to certain processing activities.</li>
+        <li>Data portability.</li>
+        <li>Lodge a complaint with the Information Commissioner's Office (ICO) in the UK.</li>
+      </ul>
+
+      <h2>9. Contact Us</h2>
+      <p>For any privacy-related inquiries or to exercise your rights, contact:<br>
+      <strong>Malachi Burnett trading as Wiizard Software</strong><br>
+      Email: <a href="mailto:malib@wiizardsoftware.uk">malib@wiizardsoftware.uk</a><br>
+      Website: <a href="https://wiizardsoftware.uk" target="_blank">wiizardsoftware.uk</a></p>
+    </main>
+  </div>
+</body>
+</html>

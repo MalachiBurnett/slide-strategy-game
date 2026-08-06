@@ -603,6 +603,14 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
 
           </div>
+
+        <div className="mt-8 text-center text-xs opacity-60 flex items-center justify-center gap-3">
+          <a href="/privacy" target="_blank" className="hover:underline">Privacy Policy</a>
+          <span>•</span>
+          <a href="/terms" target="_blank" className="hover:underline">Terms of Service</a>
+          <span>•</span>
+          <a href="https://wiizardsoftware.uk" target="_blank" className="hover:underline">Wiizard Software</a>
+        </div>
       </div>
     </div>
   );

@@ -46,6 +46,15 @@ async function startServer() {
   // API Routes
   app.use("/api", authRouter);
 
+  // Legal pages
+  app.get("/privacy", (req, res) => {
+    res.sendFile(path.join(process.cwd(), "server", "public", "privacy.html"));
+  });
+
+  app.get("/terms", (req, res) => {
+    res.sendFile(path.join(process.cwd(), "server", "public", "terms.html"));
+  });
+
   app.get("/api/skins", (req, res) => {
     res.json(getSkins());
   });
