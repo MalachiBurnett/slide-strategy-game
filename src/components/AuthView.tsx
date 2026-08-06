@@ -51,6 +51,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [emailError, setEmailError] = useState<string>('');
   const [passwordError, setPasswordError] = useState<string>('');
   const [passwordRequirements, setPasswordRequirements] = useState(getPasswordRequirements(''));
+  const [agreedToTerms, setAgreedToTerms] = useState<boolean>(false);
 
   const clearFields = () => {
     setUsername('');
@@ -59,6 +60,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setUsernameError('');
     setEmailError('');
     setPasswordError('');
+    setAgreedToTerms(false);
   };
 
   const handleUsernameChange = (value: string) => {
@@ -323,7 +325,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4 font-sans text-[var(--text)] transition-colors duration-500">
+    <div className="min-h-screen bg-[var(--bg)] flex flex-col items-center justify-center p-4 font-sans text-[var(--text)] transition-colors duration-500">
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -419,9 +421,24 @@ export const AuthView: React.FC<AuthViewProps> = ({
             )}
           </div>
           
+          {authMode === 'register' && (
+            <div className="flex items-start gap-3 mt-4">
+              <input 
+                type="checkbox" 
+                id="termsAgreement"
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                className="mt-1 w-4 h-4 accent-[var(--primary)] rounded cursor-pointer"
+              />
+              <label htmlFor="termsAgreement" className="text-xs text-[var(--text)] opacity-80 cursor-pointer select-none">
+                I agree to the <a href="/terms" target="_blank" className="text-[var(--primary)] underline font-bold">Terms of Service</a> and <a href="/privacy" target="_blank" className="text-[var(--primary)] underline font-bold">Privacy Policy</a>.
+              </label>
+            </div>
+          )}
+
           <button 
             type="submit" 
-            disabled={(authMode === 'register' && (!!usernameError || !!passwordError || !!emailError || !username || !password || !email)) || (authMode === 'login' && (!username || !password))}
+            disabled={(authMode === 'register' && (!!usernameError || !!passwordError || !!emailError || !username || !password || !email || !agreedToTerms)) || (authMode === 'login' && (!username || !password))}
             className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 shadow-xl shadow-[var(--primary)]/20 mt-6 disabled:opacity-50"
           >
             {authMode === 'login' ? <LogIn className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
