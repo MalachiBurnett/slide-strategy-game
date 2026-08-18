@@ -24,6 +24,17 @@ APP_TITLE       := Slide
 APP_DESCRIPTION := Slide strategy game for 3DS
 APP_AUTHOR      := Wiizard Software
 
+APP_TITLEID      := 0x67A4B69C0F0623F3
+APP_PRODUCT_CODE := CTR-N-SLIDE
+
+# CIA files
+CIA         := $(TARGET).cia
+BANNER_PNG  := $(CURDIR)/banner.png
+BANNER_WAV  := $(CURDIR)/banner.wav
+BANNER_BNR  := $(CURDIR)/banner.bnr
+ICON_ICN    := $(CURDIR)/$(TARGET).icn
+RSF         := $(CURDIR)/cia.rsf
+
 #---------------------------------------------------------------------------------
 # Code generation options
 #---------------------------------------------------------------------------------
@@ -51,6 +62,12 @@ LIBS := -lcurl \
 # Library directories
 #---------------------------------------------------------------------------------
 LIBDIRS := $(CTRULIB) $(DEVKITPRO)/portlibs/3ds
+
+#---------------------------------------------------------------------------------
+# Tool paths
+#---------------------------------------------------------------------------------
+BANNERTOOL := bannertool
+MAKEROM     := makerom
 
 #---------------------------------------------------------------------------------
 # No need to edit past this point
@@ -106,11 +123,46 @@ ifeq ($(strip $(NO_SMDH)),)
     export _3DSXFLAGS += --smdh=$(CURDIR)/$(TARGET).smdh
 endif
 
-.PHONY: all clean
+.PHONY: all cia clean
 
 #---------------------------------------------------------------------------------
+# Normal 3DSX build
+#---------------------------------------------------------------------------------
+
 all: $(BUILD) $(DEPSDIR)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+
+#---------------------------------------------------------------------------------
+# CIA build
+#---------------------------------------------------------------------------------
+
+cia: all $(CIA)
+	@echo "Built $(CIA)"
+
+$(CIA): $(OUTPUT).elf $(OUTPUT).smdh $(BANNER_BNR) $(RSF)
+	@echo "Creating $(CIA)..."
+	@$(MAKEROM) -f cia \
+		-o $@ \
+		-rsf $(RSF) \
+		-target t \
+		-desc app:4 \
+		-exefslogo \
+		-elf $(OUTPUT).elf \
+		-icon $(OUTPUT).smdh \
+		-banner $(BANNER_BNR)
+
+#---------------------------------------------------------------------------------
+# Banner
+#---------------------------------------------------------------------------------
+
+$(BANNER_BNR): $(BANNER_PNG) $(BANNER_WAV)
+	@echo "Creating $(notdir $@)..."
+	@$(BANNERTOOL) makebanner \
+		-i "$<" \
+		-a "$(BANNER_WAV)" \
+		-o "$@"
+
+#---------------------------------------------------------------------------------
 
 $(BUILD):
 	@mkdir -p $@
@@ -121,9 +173,18 @@ $(DEPSDIR):
 endif
 
 #---------------------------------------------------------------------------------
+# Clean
+#---------------------------------------------------------------------------------
+
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf
+	@rm -fr $(BUILD) \
+		$(TARGET).3dsx \
+		$(TARGET).smdh \
+		$(TARGET).elf \
+		$(TARGET).cia \
+		$(TARGET).icn \
+		$(BANNER_BNR)
 
 #---------------------------------------------------------------------------------
 else

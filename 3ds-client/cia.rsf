@@ -1,0 +1,38 @@
+BasicInfo:
+  Title                  : "Slide"
+  CompanyCode            : "00"
+  ProductCode            : "CTR-N-SLIDE"
+  ContentType            : Application
+  Logo                   : Nintendo
+
+TitleInfo:
+  Category               : Application
+  UniqueId               : 0x623F3
+  Version                : 0
+
+AccessControlInfo:
+  CoreVersion            : 2
+  DescVersion            : 2
+  FileSystemAccess:
+  - CategorySystemApplication
+  MemoryType             : Application
+  IdealProcessor         : 0
+  AffinityMask           : 1
+  Priority               : 16
+  MaxCpu                 : 0
+  HandleTableSize        : 0x200
+  DisableDebug           : false
+  EnableForceDebug       : false
+  CanWriteSharedPage     : true
+  CanUsePrivilegedPriority: false
+  CanUseNonAlphabetAndNumber: true
+  PermitMainFunctionArgument: true
+  CanShareDeviceMemory   : true
+  RunnableOnSleep        : false
+  SpecialMemoryArrange   : true
+  SystemMode             : 64MB
+  SystemModeExt          : Legacy
+  EnableL2Cache          : true
+
+SystemControlInfo:
+  StackSize              : 0x40000

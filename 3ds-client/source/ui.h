@@ -40,6 +40,7 @@ void drawTopScreen   (uint8_t *fb, AppState state,
                       const char *statusMsg);
 
 void drawBottomScreen(uint8_t *fb, AppState state,
-                      bool pressedSignIn, bool pressedSignOut, bool pressedQuit,
-                      const Button &btnSignIn, const Button &btnSignOut,
+                      bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
+                      bool pressedQuit, const Button &btnSignIn,
+                      const Button &btnGuest, const Button &btnSignOut,
                       const Button &btnQuit);

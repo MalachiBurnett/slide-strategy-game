@@ -138,12 +138,17 @@ int main()
     // Button layout
     // ---------------------------------------------------------------------------
     static const Button BTN_SIGNIN = {
-        16, 135, BOT_W - 32, 38,
+        16, 108, BOT_W - 32, 30,
         "Sign in on this device",
         C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}
     };
+    static const Button BTN_GUEST = {
+        16, 144, BOT_W - 32, 30,
+        "Play as guest",
+        C_BG_DARK, C_TEXT, C_ACCENT
+    };
     static const Button BTN_QUIT = {
-        16, 183, BOT_W - 32, 36,
+        16, 180, BOT_W - 32, 30,
         "Quit",
         C_BG_DARK, C_TEXT, C_ACCENT
     };
@@ -168,6 +173,7 @@ int main()
     bool qrReady = false;
 
     bool pressedSignIn = false;
+    bool pressedGuest = false;
     bool pressedSignOut = false;
     bool pressedQuit   = false;
     bool returnToErrorAfterKeyboardCancel = false;
@@ -189,14 +195,14 @@ int main()
                      "SOC init failed (0x%08lX) - check WiFi", socResult);
             state = AppState::ERROR_STATE;
             drawTopScreen   (topFb, state, nullptr, false, statusMsg);
-            drawBottomScreen(botFb, state, false, false, false, BTN_SIGNIN, BTN_SIGNOUT, BTN_QUIT);
+            drawBottomScreen(botFb, state, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
             gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
             // Skip network steps; fall straight through to the main loop
             goto main_loop;
         }
 
         drawTopScreen   (topFb, AppState::INIT, nullptr, false, "Checking saved login...");
-        drawBottomScreen(botFb, AppState::INIT, false, false, false, BTN_SIGNIN, BTN_SIGNOUT, BTN_QUIT);
+        drawBottomScreen(botFb, AppState::INIT, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
 
@@ -279,6 +285,7 @@ main_loop:
         bool touchHeld = (kHeld & KEY_TOUCH) != 0;
 
         pressedSignIn = touchHeld && buttonHit(BTN_SIGNIN, touch.px, touch.py);
+        pressedGuest = touchHeld && buttonHit(BTN_GUEST, touch.px, touch.py);
         pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
         pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
 
@@ -332,6 +339,32 @@ main_loop:
             {
                 returnToErrorAfterKeyboardCancel = state == AppState::ERROR_STATE;
                 state = AppState::KEYBOARD_LOGIN;
+            }
+
+            if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
+                buttonHit(BTN_GUEST, touch.px, touch.py))
+            {
+                state = AppState::INIT;
+                snprintf(statusMsg, sizeof(statusMsg), "Starting guest session...");
+
+                CurlBuf resp = allocBuf();
+                CURLcode cc = CURLE_OK;
+                char cerr[CURL_ERROR_SIZE] = {};
+                long http = httpPost("/api/guest", "{}", resp, cc, cerr);
+                if (http == 200 && resp.data)
+                {
+                    char guestName[64] = "Guest";
+                    jsonExtract(resp.data, "username", guestName, sizeof(guestName));
+                    snprintf(username, sizeof(username), "%s", guestName);
+                    snprintf(statusMsg, sizeof(statusMsg), "%s", guestName);
+                    state = AppState::LOGGED_IN;
+                }
+                else
+                {
+                    buildNetError(statusMsg, sizeof(statusMsg), http, cc, cerr);
+                    state = AppState::ERROR_STATE;
+                }
+                freeBuf(resp);
             }
         }
 
@@ -476,8 +509,8 @@ main_loop:
             uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
 
             drawTopScreen   (topFb, state, qrData, qrReady, statusMsg);
-            drawBottomScreen(botFb, state, pressedSignIn, pressedSignOut, pressedQuit,
-                             BTN_SIGNIN, BTN_SIGNOUT, BTN_QUIT);
+            drawBottomScreen(botFb, state, pressedSignIn, pressedGuest, pressedSignOut,
+                             pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
 
             gfxFlushBuffers();
             gfxSwapBuffers();

@@ -103,8 +103,9 @@ void drawTopScreen(uint8_t *fb, AppState state,
 // Bottom screen
 // ---------------------------------------------------------------------------
 void drawBottomScreen(uint8_t *fb, AppState state,
-                      bool pressedSignIn, bool pressedSignOut, bool pressedQuit,
-                      const Button &btnSignIn, const Button &btnSignOut,
+                      bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
+                      bool pressedQuit, const Button &btnSignIn,
+                      const Button &btnGuest, const Button &btnSignOut,
                       const Button &btnQuit)
 {
     clearScreen(fb, BOT_W, BOT_H, C_BG);
@@ -127,7 +128,8 @@ void drawBottomScreen(uint8_t *fb, AppState state,
         drawTextWrapped(fb, BOT_W, BOT_H, 8, 38, BOT_W - 16, heading, 1, C_TEXT);
 
         drawButton(fb, btnSignIn, pressedSignIn, 1);
-        drawButton(fb, btnQuit,   pressedQuit,   2);
+        drawButton(fb, btnGuest,  pressedGuest, 1);
+        drawButton(fb, btnQuit,   pressedQuit,   1);
     }
     else if (state == AppState::INIT)
     {
