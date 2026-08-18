@@ -23,6 +23,7 @@ interface AuthViewProps {
   handleGuest: () => void;
   handleGoogleAuth: (credential: string) => void;
   allowGuest?: boolean;
+  externalLogin?: boolean;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
@@ -39,6 +40,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   handleGuest,
   handleGoogleAuth,
   allowGuest = true,
+  externalLogin = false,
 }) => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordInput, setForgotPasswordInput] = useState('');
@@ -333,6 +335,12 @@ export const AuthView: React.FC<AuthViewProps> = ({
         animate={{ opacity: 1, y: 0 }}
         className="bg-[var(--bgLight)] p-8 rounded-3xl shadow-2xl w-full max-w-md border-b-8 border-[var(--accent)] border-opacity-50"
       >
+        {externalLogin && (
+          <div className="mb-6 p-4 bg-[var(--primary)] bg-opacity-10 border-2 border-[var(--primary)] border-opacity-20 rounded-2xl text-center">
+            <p className="font-black text-[var(--primary)]">Signing in on another device</p>
+            <p className="text-sm opacity-60 mt-1">Sign in here to authorize your 3DS.</p>
+          </div>
+        )}
         <div className="flex items-center justify-center gap-4 mb-8">
           <img src={faviconSvg} alt="Logo" className="w-12 h-12 shadow-lg rounded-xl" />
           <h1 className="text-4xl font-black tracking-tighter">Slide</h1>

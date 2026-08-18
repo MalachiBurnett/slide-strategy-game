@@ -337,7 +337,12 @@ export default function App() {
     const data = await res.json();
     if (res.ok) {
       setUser(data);
-      setView('lobby');
+      if (externalLoginCode) {
+        setView('external-login');
+        await handleExternalLoginApprove();
+      } else {
+        setView('lobby');
+      }
       checkReconnect(data.id);
     } else {
       setError(data.error);
@@ -837,6 +842,7 @@ export default function App() {
             handleGuest={handleGuest}
             handleGoogleAuth={handleGoogleAuth}
             allowGuest={false}
+            externalLogin={true}
           />
         );
       }
