@@ -70,6 +70,11 @@ async function startServer() {
     }
   });
 
+  app.get("/3ds-download/", (req, res) => {
+    const ciaPath = path.join(process.cwd(), "3ds-client", "slide-3ds.cia");
+    res.download(ciaPath, "slide-3ds.cia");
+  });
+
   setupMatchmaking(io);
 
   if (process.env.NODE_ENV !== "production") {
