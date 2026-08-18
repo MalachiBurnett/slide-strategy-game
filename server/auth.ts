@@ -65,6 +65,15 @@ function clearAuthCodesForUser(userId: number, callback?: (err: Error | null) =>
   db.run("DELETE FROM auth_codes WHERE user_id = ?", [userId], callback);
 }
 
+function createAuthCode(userId: number, callback: (err: Error | null, authCode?: string) => void) {
+  const authCode = generateAlphanumericCode(AUTH_CODE_LENGTH);
+  db.run(
+    "INSERT INTO auth_codes (user_id, code_hash, expires_at) VALUES (?, ?, ?)",
+    [userId, hashCode(authCode), expiresAt(AUTH_CODE_TTL_MS)],
+    (err) => callback(err, err ? undefined : authCode)
+  );
+}
+
 router.get("/leaderboard", (req, res) => {
   db.all("SELECT id, username, elo FROM users WHERE is_guest = 0 ORDER BY elo DESC LIMIT 10", (err, rows) => {
     if (err) return res.status(500).json({ error: "Error fetching leaderboard" });
@@ -304,6 +313,27 @@ router.post("/login", (req, res) => {
     }
     setSessionUser(req, user);
     res.json(getUserResponse(user));
+  });
+});
+
+router.post("/device_login", (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: "Missing fields" });
+
+  const lowerUsername = username.toLowerCase();
+  db.get("SELECT * FROM users WHERE LOWER(username) = ? OR email = ?", [lowerUsername, username], (err, user: any) => {
+    if (err || !user || !bcrypt.compareSync(password, user.password)) {
+      return res.status(400).json({ error: "Invalid credentials" });
+    }
+    if (user.is_guest === 0 && user.is_verified === 0) {
+      return res.status(403).json({ error: "Please verify your email before logging in" });
+    }
+
+    createAuthCode(user.id, (codeErr, authCode) => {
+      if (codeErr || !authCode) return res.status(500).json({ error: "Failed to create auth code" });
+      setSessionUser(req, user);
+      res.json({ ...getUserResponse(user), authCode });
+    });
   });
 });
 
