@@ -22,6 +22,7 @@ interface AuthViewProps {
   handleAuth: (e: React.FormEvent) => void;
   handleGuest: () => void;
   handleGoogleAuth: (credential: string) => void;
+  allowGuest?: boolean;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
@@ -37,6 +38,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   handleAuth,
   handleGuest,
   handleGoogleAuth,
+  allowGuest = true,
 }) => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotPasswordInput, setForgotPasswordInput] = useState('');
@@ -459,19 +461,23 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
               <div id="googleSignInButton" className="w-full h-[56px] overflow-hidden rounded-2xl flex justify-center border-2 border-[var(--primary)] border-opacity-10 shadow-sm hover:border-opacity-30 transition-all"></div>
 
-              <div className="flex items-center gap-4 py-2">
-                <div className="flex-1 h-px bg-[var(--primary)] opacity-10"></div>
-                <span className="text-[10px] opacity-30 uppercase font-black tracking-widest">ALTERNATIVE</span>
-                <div className="flex-1 h-px bg-[var(--primary)] opacity-10"></div>
-              </div>
+              {allowGuest && (
+                <>
+                  <div className="flex items-center gap-4 py-2">
+                    <div className="flex-1 h-px bg-[var(--primary)] opacity-10"></div>
+                    <span className="text-[10px] opacity-30 uppercase font-black tracking-widest">ALTERNATIVE</span>
+                    <div className="flex-1 h-px bg-[var(--primary)] opacity-10"></div>
+                  </div>
 
-              <button 
-                onClick={handleGuest}
-                className="w-full py-4 bg-transparent border-2 border-[var(--primary)] text-[var(--primary)] rounded-2xl font-black text-lg hover:bg-[var(--primary)] hover:text-[var(--bg)] transition-all flex items-center justify-center gap-3"
-              >
-                <Users className="w-6 h-6" />
-                Play as Guest
-              </button>
+                  <button 
+                    onClick={handleGuest}
+                    className="w-full py-4 bg-transparent border-2 border-[var(--primary)] text-[var(--primary)] rounded-2xl font-black text-lg hover:bg-[var(--primary)] hover:text-[var(--bg)] transition-all flex items-center justify-center gap-3"
+                  >
+                    <Users className="w-6 h-6" />
+                    Play as Guest
+                  </button>
+                </>
+              )}
 
               <div className="relative">
                 <button 

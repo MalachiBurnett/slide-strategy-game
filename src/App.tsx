@@ -291,6 +291,7 @@ export default function App() {
         setUser(data);
         if (externalLoginCode) {
           setView('external-login');
+          await handleExternalLoginApprove();
         } else {
           setView('lobby');
         }
@@ -309,7 +310,12 @@ export default function App() {
     const data = await res.json();
     if (res.ok) {
       setUser(data);
-      setView('lobby');
+      if (externalLoginCode) {
+        setView('external-login');
+        await handleExternalLoginApprove();
+      } else {
+        setView('lobby');
+      }
       checkReconnect(data.id);
     }
   };
@@ -788,6 +794,39 @@ export default function App() {
           handleAuth={handleAuth}
           handleGuest={handleGuest}
           handleGoogleAuth={handleGoogleAuth}
+        />
+      );
+    }
+
+    if (view === 'external-login' && externalLoginCode) {
+      if (!user) {
+        return (
+          <AuthView
+            authMode={authMode}
+            setAuthMode={setAuthMode}
+            username={username}
+            setUsername={setUsername}
+            email={email}
+            setEmail={setEmail}
+            password={password}
+            setPassword={setPassword}
+            error={error}
+            handleAuth={handleAuth}
+            handleGuest={handleGuest}
+            handleGoogleAuth={handleGoogleAuth}
+            allowGuest={false}
+          />
+        );
+      }
+
+      return (
+        <ExternalLoginView
+          code={externalLoginCode}
+          user={user}
+          onApprove={handleExternalLoginApprove}
+          onCancel={leaveExternalLogin}
+          status={externalLoginStatus}
+          error={externalLoginError}
         />
       );
     }
