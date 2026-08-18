@@ -115,10 +115,11 @@ const ExternalLoginView: React.FC<{
   code: string;
   user: UserData | null;
   onApprove: () => void;
+  onDifferentAccount: () => void;
   onCancel: () => void;
   status: 'idle' | 'loading' | 'success' | 'error';
   error: string;
-}> = ({ code, user, onApprove, onCancel, status, error }) => {
+}> = ({ code, user, onApprove, onDifferentAccount, onCancel, status, error }) => {
   return (
     <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4 font-sans text-[var(--text)] transition-colors duration-500">
       <motion.div
@@ -163,6 +164,13 @@ const ExternalLoginView: React.FC<{
                 >
                   {status === 'loading' && <Loader2 className="w-6 h-6 animate-spin" />}
                   Approve Sign In
+                </button>
+                <button
+                  onClick={onDifferentAccount}
+                  disabled={status === 'loading'}
+                  className="w-full py-3 mt-3 border-2 border-[var(--primary)] text-[var(--primary)] rounded-2xl font-black hover:bg-[var(--primary)] hover:text-[var(--primaryText)] transition-all disabled:opacity-50"
+                >
+                  Sign In With A Different Account
                 </button>
               </>
             ) : (
@@ -346,6 +354,20 @@ export default function App() {
     window.localStorage.removeItem(AUTH_CODE_STORAGE_KEY);
     setUser(null);
     setView('auth');
+  };
+
+  const handleExternalLoginDifferentAccount = async () => {
+    const authCode = window.localStorage.getItem(AUTH_CODE_STORAGE_KEY);
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(authCode ? { authCode } : {})
+    });
+    window.localStorage.removeItem(AUTH_CODE_STORAGE_KEY);
+    setUser(null);
+    setExternalLoginStatus('idle');
+    setExternalLoginError('');
+    setView('external-login');
   };
 
   const handleExternalLoginApprove = async () => {
@@ -824,6 +846,7 @@ export default function App() {
           code={externalLoginCode}
           user={user}
           onApprove={handleExternalLoginApprove}
+          onDifferentAccount={handleExternalLoginDifferentAccount}
           onCancel={leaveExternalLogin}
           status={externalLoginStatus}
           error={externalLoginError}
