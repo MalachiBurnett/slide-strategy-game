@@ -1,6 +1,7 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
+import crypto from "crypto";
 import { db } from "./db";
 import { getSkins, updateUnlockedSkins } from "./skins";
 import { Resend } from "resend";
@@ -13,6 +14,56 @@ dotenv.config();
 const router = express.Router();
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const EXTERNAL_LOGIN_CODE_LENGTH = 10;
+const EXTERNAL_LOGIN_TTL_MS = 10 * 60 * 1000;
+const AUTH_CODE_LENGTH = 32;
+const AUTH_CODE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const TOKEN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const EXTERNAL_TOKEN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const EXTERNAL_CODE_PATTERN = /^[0-9A-Za-z]{10}$/;
+const AUTH_CODE_PATTERN = /^[0-9A-Za-z]{32}$/;
+
+function generateAlphanumericCode(length: number, alphabet = TOKEN_ALPHABET) {
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += alphabet[crypto.randomInt(alphabet.length)];
+  }
+  return code;
+}
+
+function hashCode(code: string) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
+function expiresAt(msFromNow: number) {
+  return Date.now() + msFromNow;
+}
+
+function getUserResponse(user: any) {
+  return {
+    id: user.id,
+    username: user.username,
+    elo: user.elo,
+    wins: user.wins || 0,
+    gamesPlayed: user.games_played || 0,
+    gamesRandomSetup: user.games_random_setup || 0,
+    games1min: user.games_1min || 0,
+    gamesFogOfWar: user.games_fog_of_war || 0,
+    skin: user.skin,
+    theme: user.theme,
+    is_guest: user.is_guest === 1,
+    unlockedSkins: JSON.parse(user.unlocked_skins || '["classic"]')
+  };
+}
+
+function setSessionUser(req: express.Request, user: any) {
+  (req.session as any).userId = user.id;
+  (req.session as any).username = user.username;
+}
+
+function clearAuthCodesForUser(userId: number, callback?: (err: Error | null) => void) {
+  db.run("DELETE FROM auth_codes WHERE user_id = ?", [userId], callback);
+}
 
 router.get("/leaderboard", (req, res) => {
   db.all("SELECT id, username, elo FROM users WHERE is_guest = 0 ORDER BY elo DESC LIMIT 10", (err, rows) => {
@@ -110,8 +161,11 @@ router.post("/profile/username", (req, res) => {
           if (err.message.includes("UNIQUE constraint failed")) return res.status(400).json({ error: "Username taken" });
           return res.status(500).json({ error: "Update failed" });
         }
-        (req.session as any).username = lowerUsername;
-        res.json({ success: true, username: lowerUsername });
+        clearAuthCodesForUser(userId, (deleteErr) => {
+          if (deleteErr) return res.status(500).json({ error: "Failed to invalidate auth codes" });
+          (req.session as any).username = lowerUsername;
+          res.json({ success: true, username: lowerUsername });
+        });
       });
     });
   });
@@ -179,9 +233,15 @@ router.post("/profile/password-reset-confirm", (req, res) => {
   if (!passwordValidation.valid) return res.status(400).json({ error: passwordValidation.error });
 
   const hash = bcrypt.hashSync(newPassword, 10);
-  db.run("UPDATE users SET password = ?, password_reset_token = NULL WHERE password_reset_token = ?", [hash, token], function(err) {
-    if (err || this.changes === 0) return res.status(400).json({ error: "Invalid or expired token" });
-    res.json({ success: true });
+  db.get("SELECT id FROM users WHERE password_reset_token = ?", [token], (findErr, user: any) => {
+    if (findErr || !user) return res.status(400).json({ error: "Invalid or expired token" });
+    db.run("UPDATE users SET password = ?, password_reset_token = NULL WHERE id = ?", [hash, user.id], function(err) {
+      if (err || this.changes === 0) return res.status(400).json({ error: "Invalid or expired token" });
+      clearAuthCodesForUser(user.id, (deleteErr) => {
+        if (deleteErr) return res.status(500).json({ error: "Failed to invalidate auth codes" });
+        res.json({ success: true });
+      });
+    });
   });
 });
 
@@ -232,6 +292,7 @@ router.post("/verify/:token", (req, res) => {
 
 router.post("/login", (req, res) => {
   const { username, password } = req.body; // username can be username or email
+  if (!username || !password) return res.status(400).json({ error: "Missing fields" });
   // Support case-insensitive username lookup
   const lowerUsername = username.toLowerCase();
   db.get("SELECT * FROM users WHERE LOWER(username) = ? OR email = ?", [lowerUsername, username], (err, user: any) => {
@@ -241,22 +302,181 @@ router.post("/login", (req, res) => {
     if (user.is_guest === 0 && user.is_verified === 0) {
       return res.status(403).json({ error: "Please verify your email before logging in" });
     }
-    (req.session as any).userId = user.id;
-    (req.session as any).username = user.username;
-    res.json({ 
-      id: user.id, 
-      username: user.username, 
-      elo: user.elo, 
-      wins: user.wins || 0,
-      gamesPlayed: user.games_played || 0,
-      gamesRandomSetup: user.games_random_setup || 0,
-      games1min: user.games_1min || 0,
-      gamesFogOfWar: user.games_fog_of_war || 0,
-      skin: user.skin, 
-      theme: user.theme,
-      is_guest: user.is_guest === 1,
-      unlockedSkins: JSON.parse(user.unlocked_skins || '["classic"]')
-    });
+    setSessionUser(req, user);
+    res.json(getUserResponse(user));
+  });
+});
+
+function createExternalLoginRequest(req: express.Request, res: express.Response) {
+  db.run("DELETE FROM external_login_requests WHERE expires_at <= ? OR consumed_at IS NOT NULL", [Date.now()]);
+
+  const tryInsert = (attemptsLeft: number) => {
+    const code = generateAlphanumericCode(EXTERNAL_LOGIN_CODE_LENGTH, EXTERNAL_TOKEN_ALPHABET);
+    const codeHash = hashCode(code);
+    const codeExpiresAt = expiresAt(EXTERNAL_LOGIN_TTL_MS);
+
+    db.run(
+      "INSERT INTO external_login_requests (code_hash, expires_at) VALUES (?, ?)",
+      [codeHash, codeExpiresAt],
+      (err: any) => {
+        if (err) {
+          if (err.message?.includes("UNIQUE constraint failed") && attemptsLeft > 0) {
+            return tryInsert(attemptsLeft - 1);
+          }
+          return res.status(500).json({ error: "Failed to create external login code" });
+        }
+
+        res.json({
+          code,
+          expiresAt: codeExpiresAt,
+          loginUrl: `https://slide.wiizardsoftware.uk/qr/${code}`
+        });
+      }
+    );
+  };
+
+  tryInsert(3);
+}
+
+router.post("/external_login", createExternalLoginRequest);
+router.get("/external_login", createExternalLoginRequest);
+
+router.post("/external_login/approve", (req, res) => {
+  const userId = (req.session as any).userId;
+  if (!userId) return res.status(401).json({ error: "Not logged in" });
+
+  const { code } = req.body;
+  if (!code || typeof code !== "string" || !EXTERNAL_CODE_PATTERN.test(code)) {
+    return res.status(400).json({ error: "Invalid code" });
+  }
+
+  db.get("SELECT id, is_guest FROM users WHERE id = ?", [userId], (userErr, user: any) => {
+    if (userErr || !user) return res.status(401).json({ error: "User not found" });
+    if (user.is_guest) return res.status(403).json({ error: "Guests cannot authorize external login" });
+
+    db.run(
+      `UPDATE external_login_requests
+       SET user_id = ?, approved_at = ?
+       WHERE code_hash = ?
+         AND expires_at > ?
+         AND approved_at IS NULL
+         AND consumed_at IS NULL`,
+      [userId, Date.now(), hashCode(code), Date.now()],
+      function(err) {
+        if (err) return res.status(500).json({ error: "Failed to approve external login" });
+        if (this.changes === 0) return res.status(400).json({ error: "Invalid or expired code" });
+        res.json({ success: true });
+      }
+    );
+  });
+});
+
+router.post("/external_login/poll", (req, res) => {
+  const code = req.body?.code || req.query.code;
+  if (!code || typeof code !== "string" || !EXTERNAL_CODE_PATTERN.test(code)) {
+    return res.status(400).json({ error: "Invalid code" });
+  }
+
+  db.get(
+    "SELECT * FROM external_login_requests WHERE code_hash = ?",
+    [hashCode(code)],
+    (err, loginRequest: any) => {
+      if (err) return res.status(500).json({ error: "Failed to poll external login" });
+      if (!loginRequest) return res.status(404).json({ status: "not_found" });
+      if (loginRequest.consumed_at) return res.status(410).json({ status: "consumed" });
+      if (Number(loginRequest.expires_at) <= Date.now()) {
+        return res.status(410).json({ status: "expired" });
+      }
+      if (!loginRequest.user_id || !loginRequest.approved_at) {
+        return res.json({ status: "pending" });
+      }
+
+      db.get("SELECT * FROM users WHERE id = ?", [loginRequest.user_id], (userErr, user: any) => {
+        if (userErr || !user || user.is_guest) return res.status(400).json({ status: "invalid_user" });
+
+        const authCode = generateAlphanumericCode(AUTH_CODE_LENGTH);
+        const authCodeHash = hashCode(authCode);
+        const authCodeExpiresAt = expiresAt(AUTH_CODE_TTL_MS);
+
+        db.run(
+          "INSERT INTO auth_codes (user_id, code_hash, expires_at) VALUES (?, ?, ?)",
+          [user.id, authCodeHash, authCodeExpiresAt],
+          (insertErr: any) => {
+            if (insertErr) return res.status(500).json({ error: "Failed to create auth code" });
+
+            db.run(
+              "UPDATE external_login_requests SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL",
+              [Date.now(), loginRequest.id],
+              function(updateErr) {
+                if (updateErr) return res.status(500).json({ error: "Failed to consume external login" });
+                if (this.changes === 0) return res.status(410).json({ status: "consumed" });
+
+                setSessionUser(req, user);
+                res.json({
+                  status: "approved",
+                  success: true,
+                  authCode,
+                  authCodeExpiresAt,
+                  user: getUserResponse(user)
+                });
+              }
+            );
+          }
+        );
+      });
+    }
+  );
+});
+
+router.post("/external_login/cancel", (req, res) => {
+  const code = req.body?.code || req.query.code;
+  if (!code || typeof code !== "string" || !EXTERNAL_CODE_PATTERN.test(code)) {
+    return res.status(400).json({ error: "Invalid code" });
+  }
+
+  db.run(
+    "DELETE FROM external_login_requests WHERE code_hash = ? AND approved_at IS NULL AND consumed_at IS NULL",
+    [hashCode(code)],
+    function(err) {
+      if (err) return res.status(500).json({ error: "Failed to cancel external login" });
+      res.json({ success: true, cancelled: this.changes > 0 });
+    }
+  );
+});
+
+router.post("/auth_code_login", (req, res) => {
+  const { authCode } = req.body;
+  if (!authCode || typeof authCode !== "string" || !AUTH_CODE_PATTERN.test(authCode)) {
+    return res.status(400).json({ error: "Invalid auth code" });
+  }
+
+  db.run("DELETE FROM auth_codes WHERE expires_at <= ?", [Date.now()]);
+  db.get(
+    `SELECT users.*
+     FROM auth_codes
+     JOIN users ON users.id = auth_codes.user_id
+     WHERE auth_codes.code_hash = ?
+       AND auth_codes.expires_at > ?`,
+    [hashCode(authCode), Date.now()],
+    (err, user: any) => {
+      if (err) return res.status(500).json({ error: "Failed to login with auth code" });
+      if (!user || user.is_guest) return res.status(401).json({ error: "Invalid or expired auth code" });
+
+      setSessionUser(req, user);
+      res.json(getUserResponse(user));
+    }
+  );
+});
+
+router.post("/auth_code/revoke", (req, res) => {
+  const { authCode } = req.body;
+  if (!authCode || typeof authCode !== "string" || !AUTH_CODE_PATTERN.test(authCode)) {
+    return res.status(400).json({ error: "Invalid auth code" });
+  }
+
+  db.run("DELETE FROM auth_codes WHERE code_hash = ?", [hashCode(authCode)], function(err) {
+    if (err) return res.status(500).json({ error: "Failed to revoke auth code" });
+    res.json({ success: true, revoked: this.changes > 0 });
   });
 });
 
@@ -280,22 +500,8 @@ router.post("/google-auth", async (req, res) => {
 
       if (user) {
         // User exists, log them in
-        (req.session as any).userId = user.id;
-        (req.session as any).username = user.username;
-        return res.json({ 
-          id: user.id, 
-          username: user.username, 
-          elo: user.elo, 
-          wins: user.wins || 0,
-          gamesPlayed: user.games_played || 0,
-          gamesRandomSetup: user.games_random_setup || 0,
-          games1min: user.games_1min || 0,
-          gamesFogOfWar: user.games_fog_of_war || 0,
-          skin: user.skin, 
-          theme: user.theme,
-          is_guest: user.is_guest === 1,
-          unlockedSkins: JSON.parse(user.unlocked_skins || '["classic"]')
-        });
+        setSessionUser(req, user);
+        return res.json(getUserResponse(user));
       } else {
         // New user, create them
         // Try to use name as part of username, ensuring uniqueness
@@ -309,8 +515,7 @@ router.post("/google-auth", async (req, res) => {
             return res.status(500).json({ error: "Failed to create user" });
           }
           const newUserId = this.lastID;
-          (req.session as any).userId = newUserId;
-          (req.session as any).username = username;
+          setSessionUser(req, { id: newUserId, username });
           res.json({ 
             id: newUserId, 
             username, 
@@ -332,10 +537,25 @@ router.post("/google-auth", async (req, res) => {
 });
 
 router.post("/logout", (req, res) => {
-  req.session.destroy((err) => {
-    if (err) return res.status(500).json({ error: "Logout failed" });
-    res.clearCookie('connect.sid');
-    res.json({ success: true });
+  const { authCode } = req.body || {};
+  const revokeAuthCode = (callback: (err: Error | null, revoked: boolean) => void) => {
+    if (!authCode) return callback(null, false);
+    if (typeof authCode !== "string" || !AUTH_CODE_PATTERN.test(authCode)) {
+      return callback(new Error("Invalid auth code"), false);
+    }
+
+    db.run("DELETE FROM auth_codes WHERE code_hash = ?", [hashCode(authCode)], function(err) {
+      callback(err, this?.changes > 0);
+    });
+  };
+
+  revokeAuthCode((revokeErr, revoked) => {
+    if (revokeErr) return res.status(400).json({ error: revokeErr.message });
+    req.session.destroy((err) => {
+      if (err) return res.status(500).json({ error: "Logout failed" });
+      res.clearCookie('connect.sid');
+      res.json({ success: true, revokedAuthCode: revoked });
+    });
   });
 });
 
@@ -355,20 +575,7 @@ router.get("/me", (req, res) => {
   if (!userId) return res.status(401).json({ error: "Not logged in" });
   db.get("SELECT * FROM users WHERE id = ?", [userId], (err, user: any) => {
     if (err || !user) return res.status(401).json({ error: "User not found" });
-    res.json({
-      id: user.id,
-      username: user.username,
-      elo: user.elo,
-      wins: user.wins || 0,
-      gamesPlayed: user.games_played || 0,
-      gamesRandomSetup: user.games_random_setup || 0,
-      games1min: user.games_1min || 0,
-      gamesFogOfWar: user.games_fog_of_war || 0,
-      skin: user.skin,
-      theme: user.theme,
-      is_guest: user.is_guest === 1,
-      unlockedSkins: JSON.parse(user.unlocked_skins || '["classic"]')
-    });
+    res.json(getUserResponse(user));
   });
 });
 

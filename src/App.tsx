@@ -13,10 +13,11 @@ import { ProfileView, ResetPasswordView } from './components/ProfileView';
 import { CreditsView } from './components/CreditsView';
 import { SpectateView } from './components/SpectateView';
 import { TutorialView } from './components/TutorialView';
-import { Mail, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Mail, CheckCircle, XCircle, Loader2, MonitorSmartphone, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const socket: Socket = io();
+const AUTH_CODE_STORAGE_KEY = 'slideAuthCode';
 
 const VerifyView: React.FC<{ token: string, mode: 'auth' | 'email-change', onDone: () => void }> = ({ token, mode, onDone }) => {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -110,9 +111,80 @@ const VerifyView: React.FC<{ token: string, mode: 'auth' | 'email-change', onDon
   );
 };
 
+const ExternalLoginView: React.FC<{
+  code: string;
+  user: UserData | null;
+  onApprove: () => void;
+  onCancel: () => void;
+  status: 'idle' | 'loading' | 'success' | 'error';
+  error: string;
+}> = ({ code, user, onApprove, onCancel, status, error }) => {
+  return (
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4 font-sans text-[var(--text)] transition-colors duration-500">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-[var(--bgLight)] p-8 rounded-3xl shadow-2xl w-full max-w-md border-b-8 border-[var(--primary)] text-center"
+      >
+        <div className="flex justify-center mb-8">
+          <div className="bg-[var(--primary)] p-5 rounded-3xl shadow-lg">
+            {status === 'success' ? (
+              <ShieldCheck className="w-14 h-14 text-[var(--primaryText)]" />
+            ) : (
+              <MonitorSmartphone className="w-14 h-14 text-[var(--primaryText)]" />
+            )}
+          </div>
+        </div>
+
+        {status === 'success' ? (
+          <>
+            <h1 className="text-3xl font-black mb-4">Device Signed In</h1>
+            <p className="opacity-60 mb-8 font-medium">You can return to your other device.</p>
+            <button
+              onClick={onCancel}
+              className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black hover:opacity-90 transition-all"
+            >
+              Done
+            </button>
+          </>
+        ) : (
+          <>
+            <h1 className="text-3xl font-black mb-3">Sign In On Device</h1>
+            <p className="text-sm opacity-50 mb-6 font-bold tracking-[0.25em]">{code}</p>
+            {user ? (
+              <>
+                <p className="opacity-60 mb-8 font-medium">
+                  Continue as <span className="text-[var(--primary)] font-black">{user.username}</span>.
+                </p>
+                <button
+                  onClick={onApprove}
+                  disabled={status === 'loading'}
+                  className="w-full py-5 bg-[var(--primary)] text-[var(--primaryText)] rounded-2xl font-black text-xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-[var(--primary)]/20 disabled:opacity-50 flex items-center justify-center gap-3"
+                >
+                  {status === 'loading' && <Loader2 className="w-6 h-6 animate-spin" />}
+                  Approve Sign In
+                </button>
+              </>
+            ) : (
+              <p className="opacity-60 mb-8 font-medium">Log in below to approve this device.</p>
+            )}
+
+            {error && (
+              <div className="mt-5 p-4 bg-red-500 bg-opacity-10 rounded-2xl flex items-center justify-center gap-2">
+                <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <p className="text-red-600 text-sm font-medium">{error}</p>
+              </div>
+            )}
+          </>
+        )}
+      </motion.div>
+    </div>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState<UserData | null>(null);
-  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify' | 'profile' | 'reset-password' | 'credits' | 'spectate' | 'tutorial'>('auth');
+  const [view, setView] = useState<'auth' | 'lobby' | 'game' | 'queue' | 'cosmetics' | 'verify' | 'profile' | 'reset-password' | 'credits' | 'spectate' | 'tutorial' | 'external-login'>('auth');
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -121,10 +193,19 @@ export default function App() {
   const [verifyToken, setVerifyToken] = useState<string | null>(null);
   const [verifyMode, setVerifyMode] = useState<'auth' | 'email-change'>('auth');
   const [resetToken, setResetToken] = useState<string | null>(null);
+  const [externalLoginCode, setExternalLoginCode] = useState<string | null>(null);
+  const [externalLoginStatus, setExternalLoginStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [externalLoginError, setExternalLoginError] = useState('');
 
   useEffect(() => {
     const path = window.location.pathname;
-    if (path.startsWith('/verify/')) {
+    if (path.startsWith('/qr/')) {
+      const code = path.split('/qr/')[1];
+      if (code) {
+        setExternalLoginCode(code);
+        setView('external-login');
+      }
+    } else if (path.startsWith('/verify/')) {
       const token = path.split('/verify/')[1];
       if (token) {
         setVerifyToken(token);
@@ -208,7 +289,11 @@ export default function App() {
     if (res.ok) {
       if (authMode === 'login') {
         setUser(data);
-        setView('lobby');
+        if (externalLoginCode) {
+          setView('external-login');
+        } else {
+          setView('lobby');
+        }
         checkReconnect(data.id);
       } else {
         setAuthMode('login');
@@ -246,21 +331,80 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    await fetch('/api/logout', { method: 'POST' });
+    const authCode = window.localStorage.getItem(AUTH_CODE_STORAGE_KEY);
+    await fetch('/api/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(authCode ? { authCode } : {})
+    });
+    window.localStorage.removeItem(AUTH_CODE_STORAGE_KEY);
     setUser(null);
     setView('auth');
   };
 
+  const handleExternalLoginApprove = async () => {
+    if (!externalLoginCode) return;
+    setExternalLoginStatus('loading');
+    setExternalLoginError('');
+
+    try {
+      const res = await fetch('/api/external_login/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: externalLoginCode })
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setExternalLoginStatus('success');
+      } else {
+        setExternalLoginStatus('error');
+        setExternalLoginError(data.error || 'Could not approve this device');
+      }
+    } catch (e) {
+      setExternalLoginStatus('error');
+      setExternalLoginError('Connection error');
+    }
+  };
+
+  const leaveExternalLogin = () => {
+    window.history.replaceState({}, '', '/');
+    setExternalLoginCode(null);
+    setExternalLoginStatus('idle');
+    setExternalLoginError('');
+    setView(user ? 'lobby' : 'auth');
+  };
+
   const checkMe = useCallback(async () => {
+    const isExternalLoginRoute = window.location.pathname.startsWith('/qr/');
     const res = await fetch('/api/me');
     if (res.ok) {
       const data = await res.json();
       setUser(data);
-      if (view === 'auth') setView('lobby');
+      if (view === 'auth' && !isExternalLoginRoute) setView('lobby');
       checkReconnect(data.id);
     } else {
+      const authCode = window.localStorage.getItem(AUTH_CODE_STORAGE_KEY);
+      if (authCode) {
+        const authCodeRes = await fetch('/api/auth_code_login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ authCode })
+        });
+
+        if (authCodeRes.ok) {
+          const data = await authCodeRes.json();
+          setUser(data);
+          if (view === 'auth' && !isExternalLoginRoute) setView('lobby');
+          checkReconnect(data.id);
+          return;
+        }
+
+        window.localStorage.removeItem(AUTH_CODE_STORAGE_KEY);
+      }
+
       setUser(null);
-      if (view !== 'auth' && view !== 'verify') setView('auth');
+      if (view !== 'auth' && view !== 'verify' && view !== 'external-login') setView('auth');
     }
   }, [view, checkReconnect]);
 

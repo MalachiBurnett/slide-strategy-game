@@ -117,6 +117,35 @@ export function initializeDb() {
         target_player_id INTEGER,
         PRIMARY KEY (spectator_id, target_player_id)
       )`, (err) => { if (err) return reject(err); });
+
+      db.run(`CREATE TABLE IF NOT EXISTS external_login_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        code_hash TEXT UNIQUE NOT NULL,
+        user_id INTEGER,
+        created_at INTEGER DEFAULT (unixepoch() * 1000),
+        expires_at INTEGER NOT NULL,
+        approved_at INTEGER,
+        consumed_at INTEGER,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )`, (err) => { if (err) return reject(err); });
+
+      db.run(`CREATE INDEX IF NOT EXISTS idx_external_login_requests_code_hash
+        ON external_login_requests(code_hash)`, (err) => { if (err) return reject(err); });
+
+      db.run(`CREATE TABLE IF NOT EXISTS auth_codes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        code_hash TEXT UNIQUE NOT NULL,
+        created_at INTEGER DEFAULT (unixepoch() * 1000),
+        expires_at INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )`, (err) => { if (err) return reject(err); });
+
+      db.run(`CREATE INDEX IF NOT EXISTS idx_auth_codes_code_hash
+        ON auth_codes(code_hash)`, (err) => { if (err) return reject(err); });
+
+      db.run(`CREATE INDEX IF NOT EXISTS idx_auth_codes_user_id
+        ON auth_codes(user_id)`, (err) => { if (err) return reject(err); });
       
       db.run(`CREATE TABLE IF NOT EXISTS game_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

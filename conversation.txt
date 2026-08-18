@@ -1,0 +1,140 @@
+ok. i would like you to try and add some endpoints to the backend. firstly, i want to have an endpoint that lets you log in using another device. you should be able to request something like /external_login and it will return a 10 digit alphanumeric code that lets you on another device go to https://slide.wiizardsoftware.uk/qr/123456789A and that will take you to a normal login page that means you can sign in by scanning a qr code with your phone or something for devices that dont have an easy keyboard like a console. then you should be able to poll another endpoint with the 10 digit code as an argument and once the user has logged in from the link, it will return some sort of sucess code and also a 32 digit alphanumeric auth code. an auth code should be able to be used to login without username and password and should expire after 30 days or after a username or password change. they also should only be stored as hashes in the db for security. this means a console can save the auth code in some sort of local storage to be able to log in without needing to scan a qr every time. does that make sense? is my thought process sound? can that link fit in a version 3 qr code?
+
+
+
+
+
+
+Monday 16:02
+
+
+
+
+
+
+Worked for 7m 26s
+
+
+
+also you should be able to send some sort of cancel request that deletes the qr 10 digit code (in case the user changes their mind and logs in on the device).
+
+
+
+
+
+
+
+
+
+
+
+
+
+also you should be able to log out and stop a long lived code from working
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Implemented the backend flow in [server/auth.ts (line 341)](D:/Projects/Local/3DS-slide/slide-strategy-game/server/auth.ts:341) and the SQLite tables in [server/db.ts (line 121)](D:/Projects/Local/3DS-slide/slide-strategy-game/server/db.ts:121).
+Added endpoints:
+GET/POST /api/external_login returns { code, expiresAt, loginUrl }
+POST /api/external_login/approve approves a QR/device code from a logged-in non-guest session
+POST /api/external_login/poll polls { code }, returning pending, expired, consumed, or an approved response with a 32-char authCode
+POST /api/external_login/cancel deletes an unapproved QR code
+POST /api/auth_code_login logs in using { authCode }
+POST /api/auth_code/revoke deletes a saved long-lived auth code
+POST /api/logout now accepts optional { authCode } and revokes it while logging out
+Security bits are covered: QR codes are short-lived, saved auth codes expire after 30 days, auth codes are stored only as SHA-256 hashes, guest accounts cannot approve external logins, and saved auth codes are invalidated on username/password change.
+Your thought process is sound. This is basically OAuth’s “device code” pattern, adapted for your own session auth.
+QR version 3: the exact lowercase URL https://slide.wiizardsoftware.uk/qr/123456789A is 46 bytes, so it fits QR version 3 only at low error correction in byte mode. If encoded as uppercase alphanumeric, it can fit version 3 up to Q error correction, but lowercase URL text forces byte mode. A shorter URL or redirect domain/path would make this much more robust.
+Verified with npm run lint / tsc --noEmit, passing.
+
+Edited 3 files+314-87Review changesUndoReview
+
+server/auth.tsserver/auth.ts+279-72
+server/db.tsserver/db.ts+35-6
+package-lock.jsonpackage-lock.json+0-9
+
+
+
+
+
+Monday 16:09
+
+
+
+
+
+
+
+
+can you also make the required changes to the frontend code please?
+
+
+
+
+
+
+Monday 16:11
+
+
+
+
+
+
+Absolutely. I’ll add the /qr/:code frontend route/page so the phone can log in and approve the pairing code, plus a small client hook path for devices to use saved auth codes and revoke them on logout.
+
+
+
+
+I’m going to keep this scoped to the actual browser UI pieces: /qr/:code becomes a phone-friendly approval page, normal login redirects back into approval, and the app will use/revoke a locally saved long-lived auth code when present.
+
+
+
+
+I’m editing src/App.tsx now. The main care point is avoiding the existing “not logged in means go to auth” behavior from stealing the /qr/:code route before approval can happen.
+
+
+
+
+Edited App.tsx+2-1
+
+
+
+
+
+
+I’m adding a dedicated QR approval component rather than folding it into the general login form. That keeps the code route clear and lets the logged-in user explicitly approve the other device.
+
+
+
+
+Edited App.tsx+75-1
+
+
+
+
+
+
+I’m also adding the saved-token behavior at the app level: if localStorage.slideAuthCode exists, startup will try /api/auth_code_login; logout sends the same token to /api/logout so the backend deletes it.
+
+
+
+
+Edited a file
+
+
+
+
+
+Edited App.tsx+151-7
