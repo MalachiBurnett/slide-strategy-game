@@ -39,7 +39,8 @@ struct Button
 };
 
 bool buttonHit (const Button &btn, int tx, int ty);
-void drawButton(uint8_t *fb, const Button &btn, bool pressed, int textScale = 1);
+void drawButton(uint8_t *fb, const Button &btn, bool pressed, int textScale = 1,
+                bool focused = false);
 
 // ---------------------------------------------------------------------------
 // Screen drawing
@@ -48,6 +49,7 @@ void drawTopScreen   (uint8_t *fb, AppState state,
                       LobbyPage lobbyPage,
                       const char *username, const char *elo,
                       bool isRated, int timeControl, int variant,
+                      int focusIndex,
                       const uint8_t *qrData, bool qrReady,
                       const char *statusMsg);
 
@@ -55,6 +57,7 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       LobbyPage lobbyPage,
                       const char *username, const char *elo,
                       bool isRated, int timeControl, int variant,
+                      int focusIndex, bool focusVisible,
                       bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
                       bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,

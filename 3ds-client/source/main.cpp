@@ -106,6 +106,70 @@ static void buildNetError(char *out, int outLen,
     }
 }
 
+static int focusCount(AppState state, LobbyPage page)
+{
+    if (state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) return 3;
+    if (state == AppState::INIT) return 1;
+    if (state != AppState::LOGGED_IN) return 0;
+    if (page == LobbyPage::HOME) return 6;
+    if (page == LobbyPage::PRIVATE_CHOICE) return 4;
+    if (page == LobbyPage::PRIVATE_JOIN) return 3;
+    return 6;
+}
+
+static bool focusPoint(AppState state, LobbyPage page, int focus,
+                       int &x, int &y)
+{
+    if (state == AppState::QR_LOGIN || state == AppState::ERROR_STATE)
+    {
+        if (focus == 0) { x = BOT_W / 2; y = 125; return true; }
+        if (focus == 1) { x = BOT_W / 2; y = 165; return true; }
+        if (focus == 2) { x = BOT_W / 2; y = 222; return true; }
+    }
+    else if (state == AppState::INIT)
+    {
+        x = BOT_W / 2; y = 222; return true;
+    }
+    else if (state == AppState::LOGGED_IN)
+    {
+        if (page == LobbyPage::HOME)
+        {
+            static const int points[][2] = {{82, 76}, {238, 76}, {82, 130},
+                                             {238, 130}, {160, 200}, {160, 222}};
+            if (focus >= 0 && focus < 6) { x = points[focus][0]; y = points[focus][1]; return true; }
+        }
+        else if (page == LobbyPage::PRIVATE_CHOICE)
+        {
+            static const int points[][2] = {{82, 76}, {238, 76}, {82, 173}, {160, 222}};
+            if (focus >= 0 && focus < 4) { x = points[focus][0]; y = points[focus][1]; return true; }
+        }
+        else if (page == LobbyPage::PRIVATE_JOIN)
+        {
+            static const int points[][2] = {{238, 173}, {82, 173}, {160, 222}};
+            if (focus >= 0 && focus < 3) { x = points[focus][0]; y = points[focus][1]; return true; }
+        }
+        else
+        {
+            static const int points[][2] = {{160, 38}, {160, 62}, {160, 86},
+                                             {238, 173}, {82, 173}, {160, 222}};
+            if (focus >= 0 && focus < 6) { x = points[focus][0]; y = points[focus][1]; return true; }
+        }
+    }
+    return false;
+}
+
+static void goBack(AppState state, LobbyPage &page, char *statusMsg)
+{
+    if (state == AppState::LOGGED_IN)
+    {
+        if (page == LobbyPage::PRIVATE_CREATE || page == LobbyPage::PRIVATE_JOIN)
+            page = LobbyPage::PRIVATE_CHOICE;
+        else
+            page = LobbyPage::HOME;
+        statusMsg[0] = 0;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -157,9 +221,9 @@ int main()
         "Sign out",
         C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}
     };
-    static const Button BTN_MATCH_SETTING = {8, 52, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-    static const Button BTN_TIME_SETTING = {8, 76, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-    static const Button BTN_VARIANT_SETTING = {8, 100, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
+    static const Button BTN_MATCH_SETTING = {8, 28, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
+    static const Button BTN_TIME_SETTING = {8, 52, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
+    static const Button BTN_VARIANT_SETTING = {8, 76, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
 
     // ---------------------------------------------------------------------------
     // State
@@ -173,6 +237,8 @@ int main()
     char elo[16]        = "600";
     char joinCode[32]   = {};
     LobbyPage lobbyPage = LobbyPage::HOME;
+    int focusIndex = 0;
+    bool focusVisible = false;
     bool isRated = true;
     int timeControl = 0;
     int variant = 0;
@@ -189,6 +255,7 @@ int main()
 
     u64 lastPollTick = 0;
     constexpr u64 POLL_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 2000;
+    int previousNavDirection = 0;
 
     // ---------------------------------------------------------------------------
     // Show "connecting" splash while we make the initial network calls
@@ -203,15 +270,15 @@ int main()
             snprintf(statusMsg, sizeof(statusMsg),
                      "SOC init failed (0x%08lX) - check WiFi", socResult);
             state = AppState::ERROR_STATE;
-            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, nullptr, false, statusMsg);
-            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, statusMsg);
+            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
             gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
             // Skip network steps; fall straight through to the main loop
             goto main_loop;
         }
 
-        drawTopScreen   (topFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, nullptr, false, "Checking saved login...");
-        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+        drawTopScreen   (topFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, "Checking saved login...");
+        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
 
@@ -294,6 +361,43 @@ main_loop:
         bool touched  = (kDown & KEY_TOUCH) != 0;
         bool touchHeld = (kHeld & KEY_TOUCH) != 0;
 
+        circlePosition circle;
+        hidCircleRead(&circle);
+        int navDirection = 0;
+        if (kDown & (KEY_DUP | KEY_DLEFT)) navDirection = -1;
+        else if (kDown & (KEY_DDOWN | KEY_DRIGHT)) navDirection = 1;
+        else if (circle.dy > 120 || circle.dx < -120) navDirection = -1;
+        else if (circle.dy < -120 || circle.dx > 120) navDirection = 1;
+
+        const int currentFocusCount = focusCount(state, lobbyPage);
+        if (navDirection == 0)
+            previousNavDirection = 0;
+        else if (navDirection != previousNavDirection && currentFocusCount > 0)
+        {
+            focusIndex = (focusIndex + navDirection + currentFocusCount) % currentFocusCount;
+            focusVisible = true;
+            previousNavDirection = navDirection;
+        }
+
+        if ((kDown & KEY_B) && state == AppState::LOGGED_IN && lobbyPage != LobbyPage::HOME)
+        {
+            goBack(state, lobbyPage, statusMsg);
+            focusIndex = 0;
+        }
+
+        if (kDown & KEY_A)
+        {
+            int focusX = 0;
+            int focusY = 0;
+            if (focusPoint(state, lobbyPage, focusIndex, focusX, focusY))
+            {
+                touch.px = focusX;
+                touch.py = focusY;
+                touched = true;
+                touchHeld = true;
+            }
+        }
+
         pressedSignIn = touchHeld && buttonHit(BTN_SIGNIN, touch.px, touch.py);
         pressedGuest = touchHeld && buttonHit(BTN_GUEST, touch.px, touch.py);
         pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
@@ -343,18 +447,20 @@ main_loop:
                     buildNetError(statusMsg, sizeof(statusMsg), http, cc, cerr);
                 }
                 freeBuf(resp);
+                focusIndex = 0;
             }
             else if (state == AppState::LOGGED_IN)
             {
-                static const Button publicMatch = {8, 76, 148, 48, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button privateRoom = {164, 76, 148, 48, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button createRoom = {8, 76, 148, 48, "Create room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button joinRoom = {164, 76, 148, 48, "Join room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button localPlay = {8, 130, 148, 48, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
-                static const Button spectate = {164, 130, 148, 48, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button back = {8, 174, 148, 30, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button continueButton = {164, 174, 148, 30, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button publicMatch = {8, 52, 148, 48, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button privateRoom = {164, 52, 148, 48, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button createRoom = {8, 52, 148, 48, "Create room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button joinRoom = {164, 52, 148, 48, "Join room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button localPlay = {8, 106, 148, 48, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
+                static const Button spectate = {164, 106, 148, 48, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button back = {8, 158, 148, 30, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button continueButton = {164, 158, 148, 30, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
 
+                const LobbyPage pageBefore = lobbyPage;
                 if (lobbyPage == LobbyPage::HOME)
                 {
                     if (buttonHit(publicMatch, touch.px, touch.py)) lobbyPage = LobbyPage::PUBLIC_SETTINGS;
@@ -402,6 +508,8 @@ main_loop:
                 {
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Settings saved", username, elo);
                 }
+                if (lobbyPage != pageBefore)
+                    focusIndex = 0;
             }
 
             else if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
@@ -583,8 +691,8 @@ main_loop:
             uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
             uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
 
-            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, qrData, qrReady, statusMsg);
-            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, pressedSignIn, pressedGuest, pressedSignOut,
+            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg);
+            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, pressedSignIn, pressedGuest, pressedSignOut,
                              pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
 
             gfxFlushBuffers();
