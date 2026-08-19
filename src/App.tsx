@@ -683,12 +683,14 @@ export default function App() {
 
   const startPublicMatch = () => {
     if (!user) return;
+    const matchIsRated = user.is_guest ? false : isRated;
+    if (user.is_guest && isRated) setIsRated(false);
     setGameId(null);
     setGameState(null);
     setOpponentName(null);
     setTimerW(null);
     setTimerB(null);
-    socket.emit('join_queue', { userId: user.id, elo: user.elo, timeControl, variant, isRated });
+    socket.emit('join_queue', { userId: user.id, elo: user.elo, timeControl, variant, isRated: matchIsRated });
     setView('queue');
     setError('');
   };
@@ -701,7 +703,9 @@ export default function App() {
 
   const createPrivateMatch = () => {
     if (!user) return;
-    socket.emit('create_private', { userId: user.id, timeControl, variant, isRated });
+    const matchIsRated = user.is_guest ? false : isRated;
+    if (user.is_guest && isRated) setIsRated(false);
+    socket.emit('create_private', { userId: user.id, timeControl, variant, isRated: matchIsRated });
   };
 
   const joinPrivateMatch = () => {

@@ -237,11 +237,11 @@ export const GameView: React.FC<GameViewProps> = ({
                 {gameState.winner === 'W' ? 'White' : 'Black'} has won the match
               </p>
               
-              {!isLocal && (
+              {!isLocal && isRated && (
                 <div className="bg-[var(--primary)] bg-opacity-5 p-6 rounded-2xl mb-12">
                   <p className="text-sm opacity-40 uppercase font-bold tracking-widest mb-2">ELO Change</p>
-                  <p className={`text-4xl font-bold ${isRated ? (isWinner ? 'text-green-600' : 'text-red-600') : 'text-gray-400'}`}>
-                    {isRated ? `${isWinner ? '+' : '-'}${gameState.eloChange || 25}` : 'no elo change'}
+                  <p className={`text-4xl font-bold ${isWinner ? 'text-green-600' : 'text-red-600'}`}>
+                    {`${isWinner ? '+' : '-'}${gameState.eloChange || 25}`}
                   </p>
                 </div>
               )}

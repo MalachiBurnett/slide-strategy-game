@@ -167,6 +167,9 @@ int main()
     char loginUrl[128]  = {};
     char savedAuthCode[AUTHCODE_LEN + 2] = {};
     char username[64]   = {};
+    char elo[16]        = "600";
+    char joinCode[32]   = {};
+    LobbyPage lobbyPage = LobbyPage::HOME;
 
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -195,14 +198,14 @@ int main()
                      "SOC init failed (0x%08lX) - check WiFi", socResult);
             state = AppState::ERROR_STATE;
             drawTopScreen   (topFb, state, nullptr, false, statusMsg);
-            drawBottomScreen(botFb, state, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+            drawBottomScreen(botFb, state, lobbyPage, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
             gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
             // Skip network steps; fall straight through to the main loop
             goto main_loop;
         }
 
         drawTopScreen   (topFb, AppState::INIT, nullptr, false, "Checking saved login...");
-        drawBottomScreen(botFb, AppState::INIT, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+        drawBottomScreen(botFb, AppState::INIT, lobbyPage, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
 
@@ -223,8 +226,9 @@ int main()
         {
             char uname[64] = "Player";
             jsonExtract(resp.data, "username", uname, sizeof(uname));
+            jsonExtract(resp.data, "elo", elo, sizeof(elo));
             snprintf(username,  sizeof(username),  "%s", uname);
-            snprintf(statusMsg, sizeof(statusMsg), "%s", uname);
+            snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
             state = AppState::LOGGED_IN;
         }
         // Any other code → fall through to QR login below
@@ -334,6 +338,43 @@ main_loop:
                 freeBuf(resp);
             }
 
+            if (state == AppState::LOGGED_IN)
+            {
+                static const Button publicMatch = {8, 42, 152, 48, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button privateRoom = {168, 42, 152, 48, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button localPlay = {8, 98, 152, 48, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
+                static const Button spectate = {168, 98, 152, 48, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button back = {8, 174, 152, 34, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button continueButton = {168, 174, 152, 34, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+
+                if (lobbyPage == LobbyPage::HOME)
+                {
+                    if (buttonHit(publicMatch, touch.px, touch.py)) lobbyPage = LobbyPage::PUBLIC_SETTINGS;
+                    else if (buttonHit(privateRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CHOICE;
+                    else if (buttonHit(localPlay, touch.px, touch.py)) snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Local play menu", username, elo);
+                    else if (buttonHit(spectate, touch.px, touch.py)) snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Spectate menu", username, elo);
+                }
+                else if (buttonHit(back, touch.px, touch.py))
+                {
+                    if (lobbyPage == LobbyPage::PRIVATE_CHOICE || lobbyPage == LobbyPage::PUBLIC_SETTINGS) lobbyPage = LobbyPage::HOME;
+                    else if (lobbyPage == LobbyPage::PRIVATE_CREATE || lobbyPage == LobbyPage::PRIVATE_JOIN) lobbyPage = LobbyPage::PRIVATE_CHOICE;
+                }
+                else if (lobbyPage == LobbyPage::PRIVATE_CHOICE)
+                {
+                    if (buttonHit(publicMatch, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CREATE;
+                    else if (buttonHit(privateRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_JOIN;
+                }
+                else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_JOIN)
+                {
+                    showKeyboard("Join code", joinCode, sizeof(joinCode));
+                    snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Join code ready", username, elo);
+                }
+                else if (buttonHit(continueButton, touch.px, touch.py))
+                {
+                    snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Settings saved", username, elo);
+                }
+            }
+
             if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
                 buttonHit(BTN_SIGNIN, touch.px, touch.py))
             {
@@ -355,8 +396,9 @@ main_loop:
                 {
                     char guestName[64] = "Guest";
                     jsonExtract(resp.data, "username", guestName, sizeof(guestName));
+                    jsonExtract(resp.data, "elo", elo, sizeof(elo));
                     snprintf(username, sizeof(username), "%s", guestName);
-                    snprintf(statusMsg, sizeof(statusMsg), "%s", guestName);
+                    snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", guestName, elo);
                     state = AppState::LOGGED_IN;
                 }
                 else
@@ -402,8 +444,9 @@ main_loop:
                     char ac[AUTHCODE_LEN + 2] = {};
                     jsonExtract(resp.data, "username", uname, sizeof(uname));
                     jsonExtract(resp.data, "authCode", ac, sizeof(ac));
+                    jsonExtract(resp.data, "elo", elo, sizeof(elo));
                     snprintf(username,  sizeof(username),  "%s", uname);
-                    snprintf(statusMsg, sizeof(statusMsg), "%s", uname);
+                    snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
                     if (ac[0]) saveAuthCode(ac);
                     state = AppState::LOGGED_IN;
                 }
@@ -447,13 +490,16 @@ main_loop:
                         jsonExtract(resp.data, "authCode", ac, sizeof(ac));
                         const char *userObj = strstr(resp.data, "\"user\":");
                         if (userObj)
+                        {
                             jsonExtract(userObj, "username", uname, sizeof(uname));
+                            jsonExtract(userObj, "elo", elo, sizeof(elo));
+                        }
 
                         snprintf(username, sizeof(username), "%s", uname);
                         if (ac[0]) saveAuthCode(ac);
 
                         state = AppState::LOGGED_IN;
-                        snprintf(statusMsg, sizeof(statusMsg), "%s", username);
+                        snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", username, elo);
                     }
                     else if (strcmp(pollStatus, "expired")   == 0 ||
                              strcmp(pollStatus, "consumed")  == 0 ||
@@ -509,7 +555,7 @@ main_loop:
             uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
 
             drawTopScreen   (topFb, state, qrData, qrReady, statusMsg);
-            drawBottomScreen(botFb, state, pressedSignIn, pressedGuest, pressedSignOut,
+            drawBottomScreen(botFb, state, lobbyPage, pressedSignIn, pressedGuest, pressedSignOut,
                              pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
 
             gfxFlushBuffers();

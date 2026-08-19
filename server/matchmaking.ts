@@ -185,9 +185,12 @@ export function setupMatchmaking(io: Server) {
     });
 
     socket.on("join_queue", (data: {userId: number, elo: number, timeControl: string, variant: string, isRated: boolean}) => {
-      db.get("SELECT is_banned FROM users WHERE id = ?", [data.userId], (err, user: any) => {
+      db.get("SELECT is_banned, is_guest FROM users WHERE id = ?", [data.userId], (err, user: any) => {
         if (err || !user || user.is_banned) {
           return socket.emit("error", "You are banned from playing public matches. Change your name to appeal.");
+        }
+        if (user.is_guest && data.isRated) {
+          return socket.emit("error", "Guest accounts can only play casual matches.");
         }
         
         socketToUser.set(socket.id, data.userId);
@@ -217,7 +220,11 @@ export function setupMatchmaking(io: Server) {
     });
 
     socket.on("create_private", (data: {userId: number, timeControl: string, variant: string, isRated: boolean}) => {
-      db.get("SELECT skin FROM users WHERE id = ?", [data.userId], (err, user: any) => {
+      db.get("SELECT skin, is_guest FROM users WHERE id = ?", [data.userId], (err, user: any) => {
+        if (err || !user) return socket.emit("error", "User not found");
+        if (user.is_guest && data.isRated) {
+          return socket.emit("error", "Guest accounts can only play casual matches.");
+        }
         socketToUser.set(socket.id, data.userId);
         const words = ["APPLE", "BREAD", "CHESS", "DREAM", "EAGLE", "FLAME", "GRAPE", "HOUSE", "IMAGE", "JOKER"];
         const code = words[Math.floor(Math.random() * words.length)] + Math.floor(100 + Math.random() * 900);
@@ -248,10 +255,14 @@ export function setupMatchmaking(io: Server) {
       const gameId = privateGames.get(data.code);
       if (!gameId) return socket.emit("error", "Invalid code");
 
-      db.get("SELECT * FROM games WHERE id = ?", [gameId], (err, game: any) => {
+        db.get("SELECT * FROM games WHERE id = ?", [gameId], (err, game: any) => {
         if (!game || game.status !== 'waiting') return socket.emit("error", "Game full or not found");
         
-        db.get("SELECT skin, username FROM users WHERE id = ?", [data.userId], (err, userB: any) => {
+        db.get("SELECT skin, username, is_guest FROM users WHERE id = ?", [data.userId], (err, userB: any) => {
+          if (err || !userB) return socket.emit("error", "User not found");
+          if (userB.is_guest && game.is_rated) {
+            return socket.emit("error", "Guest accounts can only play casual matches.");
+          }
           const skinB = userB?.skin || 'classic';
           
           db.run("UPDATE games SET player_b = ?, status = ?, last_move_time = ?, skin_b = ? WHERE id = ?", 

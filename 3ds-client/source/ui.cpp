@@ -103,6 +103,7 @@ void drawTopScreen(uint8_t *fb, AppState state,
 // Bottom screen
 // ---------------------------------------------------------------------------
 void drawBottomScreen(uint8_t *fb, AppState state,
+                      LobbyPage lobbyPage,
                       bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
                       bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,
@@ -138,10 +139,51 @@ void drawBottomScreen(uint8_t *fb, AppState state,
     }
     else if (state == AppState::LOGGED_IN)
     {
-        drawTextWrapped(fb, BOT_W, BOT_H, 8, 38, BOT_W - 16,
-                        "Logged in! The game will load shortly.", 1, C_TEXT);
-        drawButton(fb, btnSignOut, pressedSignOut, 2);
-        drawButton(fb, btnQuit, pressedQuit, 2);
+        static const Button publicMatch = {8, 42, 152, 48, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+        static const Button privateRoom = {168, 42, 152, 48, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+        static const Button localPlay = {8, 98, 152, 48, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
+        static const Button spectate = {168, 98, 152, 48, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
+        static const Button back = {8, 174, 152, 34, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
+        static const Button continueButton = {168, 174, 152, 34, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+
+        if (lobbyPage == LobbyPage::HOME)
+        {
+            drawText(fb, BOT_W, BOT_H, 8, 34, "Choose a mode", 1, C_TEXT);
+            drawButton(fb, publicMatch, false);
+            drawButton(fb, privateRoom, false);
+            drawButton(fb, localPlay, false);
+            drawButton(fb, spectate, false);
+            drawButton(fb, btnSignOut, pressedSignOut, 1);
+        }
+        else if (lobbyPage == LobbyPage::PRIVATE_CHOICE)
+        {
+            drawText(fb, BOT_W, BOT_H, 8, 34, "Private room", 1, C_TEXT);
+            drawTextWrapped(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, "Create a room with settings, or join with a code.", 1, C_TEXT);
+            drawButton(fb, publicMatch, false);
+            drawButton(fb, privateRoom, false);
+            drawButton(fb, back, false);
+        }
+        else if (lobbyPage == LobbyPage::PRIVATE_JOIN)
+        {
+            drawText(fb, BOT_W, BOT_H, 8, 34, "Join a room", 1, C_TEXT);
+            drawTextWrapped(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, "Enter the host's join code.", 1, C_TEXT);
+            drawButton(fb, continueButton, false);
+            drawButton(fb, back, false);
+        }
+        else
+        {
+            drawText(fb, BOT_W, BOT_H, 8, 34,
+                     lobbyPage == LobbyPage::PUBLIC_SETTINGS ? "Public settings" : "Create room",
+                     1, C_TEXT);
+            drawText(fb, BOT_W, BOT_H, 8, 54, "Ranked / Casual", 1, C_PRIMARY);
+            drawText(fb, BOT_W, BOT_H, 8, 76, "Time: 15s + 3s", 1, C_TEXT);
+            drawText(fb, BOT_W, BOT_H, 8, 98, "Variant: Classic", 1, C_TEXT);
+            drawTextWrapped(fb, BOT_W, BOT_H, 8, 122, BOT_W - 16, "Settings are ready. Match modes are coming soon.", 1, C_ACCENT);
+            drawButton(fb, continueButton, false);
+            drawButton(fb, back, false);
+        }
+
+        drawButton(fb, btnQuit, pressedQuit, 1);
     }
     else if (state == AppState::KEYBOARD_LOGIN)
     {

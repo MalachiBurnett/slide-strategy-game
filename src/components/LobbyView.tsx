@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart, Eye, HelpCircle, Menu, X } from 'lucide-react';
+import { Play, Trophy, LogOut, Hash, Users, Zap, User, Heart, Eye, HelpCircle, Menu, X, ArrowLeft, Globe, LockKeyhole } from 'lucide-react';
 import { UserData, LeaderboardEntry, Turn } from '../types/game';
 import { Socket } from 'socket.io-client';
 
@@ -72,6 +72,7 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   const [showPatchNotes, setShowPatchNotes] = useState(false);
   const [playersInGame, setPlayersInGame] = useState<Set<string>>(new Set());
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [lobbyPage, setLobbyPage] = useState<'home' | 'public-settings' | 'private-choice' | 'private-create' | 'private-join'>('home');
 
   React.useEffect(() => {
     if (showLeaderboard) {
@@ -94,6 +95,58 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
     { id: 'random_setup', name: 'Random Setup', desc: 'Pieces start in random positions.' },
     { id: 'schizophrenic', name: 'Schizophrenic', desc: 'A random square changes every turn!' },
   ];
+
+  const canPlayRanked = !user?.is_guest;
+  const goHome = () => setLobbyPage('home');
+  const chooseRanked = () => {
+    if (canPlayRanked && !isRated) toggleRated();
+  };
+  const chooseCasual = () => {
+    if (isRated) toggleRated();
+  };
+
+  const SettingsPanel = ({ privateMatch = false }: { privateMatch?: boolean }) => (
+    <div className="space-y-5">
+      <div>
+        <p className="text-xs font-black text-[var(--primary)] mb-2 uppercase tracking-[0.18em]">Match Type</p>
+        <div className="bg-[var(--bg)] p-1 rounded-xl flex gap-1">
+          <button onClick={chooseRanked} disabled={!canPlayRanked} className={`flex-1 py-3 rounded-lg text-sm font-black transition-all ${isRated ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'opacity-50'} disabled:cursor-not-allowed`}>
+            Ranked {!canPlayRanked && '(account required)'}
+          </button>
+          <button onClick={chooseCasual} className={`flex-1 py-3 rounded-lg text-sm font-black transition-all ${!isRated ? 'bg-[var(--accent)] text-[var(--accentText)] shadow-lg' : 'opacity-50'}`}>
+            Casual
+          </button>
+        </div>
+        {!canPlayRanked && <p className="text-xs text-[var(--accent)] mt-2 font-bold">Guest accounts can play casual matches only.</p>}
+      </div>
+      <div>
+        <p className="text-xs font-black text-[var(--primary)] mb-2 uppercase tracking-[0.18em]">Time Control</p>
+        <div className="bg-[var(--bg)] p-1 rounded-xl grid grid-cols-3 gap-1">
+          {(['0.25|3', '3|2', '1|0'] as const).map((tc) => (
+            <button key={tc} onClick={() => setTimeControl(tc)} className={`py-3 rounded-lg text-sm font-black transition-all ${timeControl === tc ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'opacity-60 hover:opacity-100'}`}>
+              {tc === '0.25|3' ? '15s + 3s' : tc === '3|2' ? '3m + 2s' : '1 minute'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="text-xs font-black text-[var(--primary)] mb-2 uppercase tracking-[0.18em]">Variant</p>
+        <div className="grid grid-cols-2 gap-2">
+          {variants.map((item) => (
+            <button key={item.id} onClick={() => setVariant(item.id)} className={`p-3 rounded-xl text-left transition-all ${variant === item.id ? 'bg-[var(--primary)] text-[var(--primaryText)] shadow-lg' : 'bg-[var(--bg)] opacity-70 hover:opacity-100'}`}>
+              <span className="block font-black text-sm">{item.name}</span>
+              <span className="block text-[11px] mt-1 opacity-70">{item.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <button onClick={privateMatch ? createPrivateMatch : startPublicMatch} className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-xl font-black text-lg shadow-lg hover:opacity-90 transition-opacity">
+        {privateMatch ? 'Create Room' : 'Find Match'}
+      </button>
+    </div>
+  );
+
+  const tileClass = 'bg-[var(--bgLight)] p-5 sm:p-7 rounded-2xl shadow-lg border-b-4 border-[var(--primary)] hover:-translate-y-1 transition-transform text-left';
 
   const getQueueCountForVariant = (vId: string): number => {
     if (!queueCounts || !queueCounts[vId]) return 0;
@@ -241,7 +294,56 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
           </AnimatePresence>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
+        {lobbyPage === 'home' && <div className="grid grid-cols-2 gap-3 sm:gap-5 max-w-3xl mx-auto">
+          <button onClick={() => setLobbyPage('public-settings')} className={`${tileClass} min-h-40 sm:min-h-48`}>
+            <Globe className="w-9 h-9 text-[var(--primary)] mb-5" />
+            <h2 className="text-lg sm:text-2xl font-black">Public Match</h2>
+            <p className="text-xs sm:text-sm opacity-60 mt-2">Find an opponent online.</p>
+          </button>
+          <button onClick={() => setLobbyPage('private-choice')} className={`${tileClass} min-h-40 sm:min-h-48`}>
+            <LockKeyhole className="w-9 h-9 text-[var(--primary)] mb-5" />
+            <h2 className="text-lg sm:text-2xl font-black">Private Room</h2>
+            <p className="text-xs sm:text-sm opacity-60 mt-2">Play with a room code.</p>
+          </button>
+          <button onClick={startLocalMatch} className={`${tileClass} min-h-40 sm:min-h-48`}>
+            <Users className="w-9 h-9 text-[var(--accent)] mb-5" />
+            <h2 className="text-lg sm:text-2xl font-black">Local Play</h2>
+            <p className="text-xs sm:text-sm opacity-60 mt-2">Play on this device.</p>
+          </button>
+          <button onClick={() => setView('spectate')} className={`${tileClass} min-h-40 sm:min-h-48`}>
+            <Eye className="w-9 h-9 text-purple-500 mb-5" />
+            <h2 className="text-lg sm:text-2xl font-black">Spectate</h2>
+            <p className="text-xs sm:text-sm opacity-60 mt-2">Watch a live game.</p>
+          </button>
+        </div>}
+
+        {lobbyPage !== 'home' && <div className="max-w-xl mx-auto">
+          <button onClick={goHome} className="flex items-center gap-2 mb-5 text-sm font-black text-[var(--primary)] hover:opacity-70">
+            <ArrowLeft className="w-4 h-4" /> Back to lobby
+          </button>
+          {lobbyPage === 'public-settings' && <section className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-2xl shadow-xl border-b-4 border-[var(--primary)]">
+            <div className="flex items-center gap-3 mb-6"><Globe className="w-8 h-8 text-[var(--primary)]" /><div><h2 className="text-2xl font-black">Public Match</h2><p className="text-sm opacity-60">Choose how you want to play.</p></div></div>
+            <SettingsPanel />
+          </section>}
+          {lobbyPage === 'private-choice' && <section className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-2xl shadow-xl border-b-4 border-[var(--primary)]">
+            <div className="flex items-center gap-3 mb-6"><LockKeyhole className="w-8 h-8 text-[var(--primary)]" /><div><h2 className="text-2xl font-black">Private Room</h2><p className="text-sm opacity-60">Create a room or join one.</p></div></div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <button onClick={() => setLobbyPage('private-create')} className="p-5 rounded-xl bg-[var(--primary)] text-[var(--primaryText)] text-left"><Hash className="w-6 h-6 mb-4" /><span className="block font-black">Create Room</span><span className="block text-xs opacity-75 mt-1">Set the match rules and get a code.</span></button>
+              <button onClick={() => setLobbyPage('private-join')} className="p-5 rounded-xl bg-[var(--bg)] border-2 border-[var(--primary)] text-left"><Users className="w-6 h-6 mb-4 text-[var(--primary)]" /><span className="block font-black">Enter Code</span><span className="block text-xs opacity-60 mt-1">Join a room hosted by someone else.</span></button>
+            </div>
+          </section>}
+          {lobbyPage === 'private-create' && <section className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-2xl shadow-xl border-b-4 border-[var(--primary)]">
+            <div className="flex items-center gap-3 mb-6"><Hash className="w-8 h-8 text-[var(--primary)]" /><div><h2 className="text-2xl font-black">Create Room</h2><p className="text-sm opacity-60">These settings will be used for the room.</p></div></div>
+            <SettingsPanel privateMatch />
+          </section>}
+          {lobbyPage === 'private-join' && <section className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-2xl shadow-xl border-b-4 border-[var(--primary)]">
+            <div className="flex items-center gap-3 mb-6"><Users className="w-8 h-8 text-[var(--primary)]" /><div><h2 className="text-2xl font-black">Join Room</h2><p className="text-sm opacity-60">The host controls the match settings.</p></div></div>
+            <input type="text" placeholder="JOIN CODE" value={joinCode} onChange={(event) => setJoinCode(event.target.value.toUpperCase())} className="w-full px-4 py-4 bg-[var(--bg)] border-2 border-[var(--primary)] rounded-xl outline-none font-mono text-center text-xl tracking-[0.2em] uppercase mb-3" />
+            <button onClick={joinPrivateMatch} disabled={!joinCode.trim()} className="w-full py-4 bg-[var(--primary)] text-[var(--primaryText)] rounded-xl font-black disabled:opacity-40">Join Room</button>
+          </section>}
+        </div>}
+
+        <div className="hidden">
           <motion.div 
             whileHover={{ scale: 1.02 }}
             className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-[var(--primary)] border-opacity-50"
@@ -603,6 +705,18 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
 
 
           </div>
+
+        {privateCode && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[var(--bgLight)] p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center border-b-4 border-[var(--primary)]">
+              <h3 className="text-2xl font-black mb-2">Room Created</h3>
+              <p className="opacity-60 mb-5">Share this code with your friend.</p>
+              <div className="bg-[var(--primary)] text-[var(--primaryText)] p-5 rounded-xl text-3xl font-mono font-black tracking-widest mb-5">{privateCode}</div>
+              <p className="text-sm text-[var(--primary)] font-bold animate-pulse mb-4">Waiting for opponent...</p>
+              <button onClick={() => { setPrivateCode(null); setGameId(null); setPlayerColor(null); }} className="text-sm font-black text-[var(--primary)] hover:underline">Cancel</button>
+            </motion.div>
+          </div>
+        )}
 
         <div className="mt-8 text-center text-xs opacity-60 flex items-center justify-center gap-3">
           <a href="/privacy" target="_blank" className="hover:underline">Privacy Policy</a>

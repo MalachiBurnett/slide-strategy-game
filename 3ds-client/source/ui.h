@@ -17,6 +17,15 @@ enum class AppState
     ERROR_STATE,    // network or auth error
 };
 
+enum class LobbyPage
+{
+    HOME,
+    PUBLIC_SETTINGS,
+    PRIVATE_CHOICE,
+    PRIVATE_CREATE,
+    PRIVATE_JOIN,
+};
+
 // ---------------------------------------------------------------------------
 // Button
 // ---------------------------------------------------------------------------
@@ -40,6 +49,7 @@ void drawTopScreen   (uint8_t *fb, AppState state,
                       const char *statusMsg);
 
 void drawBottomScreen(uint8_t *fb, AppState state,
+                      LobbyPage lobbyPage,
                       bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
                       bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,
