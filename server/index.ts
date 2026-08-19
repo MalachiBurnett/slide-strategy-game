@@ -75,7 +75,7 @@ async function startServer() {
     res.download(ciaPath, "slide-3ds.cia");
   });
 
-  setupMatchmaking(io);
+  setupMatchmaking(io, app);
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

@@ -1,4 +1,6 @@
 import { Server, Socket } from "socket.io";
+import express from "express";
+import crypto from "crypto";
 import { db } from "./db";
 import { INITIAL_BOARD, getValidMoves, checkWin, calculateEloChange, generateBoard } from "./gameLogic";
 import { updateUnlockedSkins } from "./skins";
@@ -18,6 +20,11 @@ const privateGames = new Map<string, string>(); // code -> gameId
 const spectators = new Map<string, Set<number>>(); // gameId -> Set of spectator userIds
 const spectatorSessions = new Map<string, {spectatorId: number, targetUsername: string, gameId: string | null}>(); // socketId -> spectator session
 const pendingTerminations = new Map<number, NodeJS.Timeout>(); // userId -> timeout
+const AUTH_CODE_PATTERN = /^[0-9A-Za-z]{32}$/;
+
+function hashAuthCode(code: string) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
 
 function notifyWaitingSpectators(io: Server, gameId: string, playerWId: number, playerBId: number) {
   db.all("SELECT id, username FROM users WHERE id IN (?, ?)", [playerWId, playerBId], (err, users: any[]) => {
@@ -38,8 +45,103 @@ function notifyWaitingSpectators(io: Server, gameId: string, playerWId: number, 
   });
 }
 
-export function setupMatchmaking(io: Server) {
+export function setupMatchmaking(io: Server, app?: express.Application) {
   let onlineCount = 0;
+
+  const authenticate3ds = (req: express.Request, res: express.Response, done: (user: any) => void) => {
+    const authCode = req.body?.authCode;
+    if (!authCode || typeof authCode !== "string" || !AUTH_CODE_PATTERN.test(authCode)) {
+      return res.status(401).json({ error: "Invalid or expired auth code" });
+    }
+    db.get(`SELECT users.* FROM auth_codes JOIN users ON users.id = auth_codes.user_id
+            WHERE auth_codes.code_hash = ? AND auth_codes.expires_at > ?`,
+      [hashAuthCode(authCode), Date.now()], (err, user: any) => {
+        if (err || !user) return res.status(401).json({ error: "Invalid or expired auth code" });
+        done(user);
+      });
+  };
+
+  if (app) {
+    app.post("/api/3ds/queue", (req, res) => authenticate3ds(req, res, (user) => {
+      const { timeControl, variant, isRated } = req.body;
+      const allowedTimes = ["0.25|3", "1|0", "3|2"];
+      const allowedVariants = ["classic", "fog_of_war", "random_setup", "schizophrenic"];
+      if (!allowedTimes.includes(timeControl) || !allowedVariants.includes(variant)) {
+        return res.status(400).json({ error: "Invalid matchmaking settings" });
+      }
+      const rated = Boolean(isRated) && !user.is_guest;
+      const matchIdx = publicQueue.findIndex(q => q.timeControl === timeControl && q.variant === variant && q.isRated === rated);
+      if (matchIdx !== -1) {
+        const opponent = publicQueue.splice(matchIdx, 1)[0];
+        broadcastQueueCounts();
+        startGame(io, user.id, opponent.userId, opponent.socketId, "", timeControl, variant, rated);
+        return res.json({ status: "matched" });
+      }
+      publicQueue.push({ userId: user.id, elo: user.elo, socketId: "", timeControl, variant, isRated: rated });
+      broadcastQueueCounts();
+      res.json({ status: "queued" });
+    }));
+
+    app.post("/api/3ds/status", (req, res) => authenticate3ds(req, res, (user) => {
+      const queued = publicQueue.find(q => q.userId === user.id);
+      if (queued) return res.json({ status: "queued" });
+      db.get("SELECT * FROM games WHERE status = 'active' AND (player_w = ? OR player_b = ?) ORDER BY last_move_time DESC LIMIT 1",
+        [user.id, user.id], (err, game: any) => {
+          if (err) return res.status(500).json({ error: "Failed to read game status" });
+          if (!game) return res.json({ status: "idle" });
+          const color = Number(game.player_w) === Number(user.id) ? "W" : "B";
+          res.json({ status: "matched", gameId: game.id, color, board: JSON.parse(game.board), turn: game.turn,
+            variant: game.variant, timerW: game.timer_w, timerB: game.timer_b, isRated: !!game.is_rated });
+        });
+    }));
+
+    app.post("/api/3ds/leave", (req, res) => authenticate3ds(req, res, (user) => {
+      const index = publicQueue.findIndex(q => q.userId === user.id);
+      if (index >= 0) publicQueue.splice(index, 1);
+      broadcastQueueCounts();
+      res.json({ success: true });
+    }));
+
+    app.post("/api/3ds/move", (req, res) => authenticate3ds(req, res, (user) => {
+      const { gameId, from, to } = req.body;
+      db.get("SELECT * FROM games WHERE id = ?", [gameId], (err, game: any) => {
+        if (err || !game || game.status !== "active") return res.status(400).json({ error: "Game is not active" });
+        const playerW = Number(game.player_w);
+        const playerB = Number(game.player_b);
+        const turn = game.turn;
+        if ((turn === "W" && user.id !== playerW) || (turn === "B" && user.id !== playerB)) {
+          return res.status(409).json({ error: "It is not your turn", status: "waiting" });
+        }
+        const board = JSON.parse(game.board);
+        const piece = board?.[from?.r]?.[from?.c];
+        if (piece !== turn) return res.status(400).json({ error: "Invalid piece" });
+        const validMoves = getValidMoves(board, from.r, from.c);
+        if (!validMoves.some(m => m.r === to.r && m.c === to.c)) return res.status(400).json({ error: "Invalid move" });
+        board[to.r][to.c] = piece;
+        board[from.r][from.c] = "0";
+        const winResult = checkWin(board);
+        const winner = winResult ? winResult.winner : null;
+        const nextTurn = turn === "W" ? "B" : "W";
+        const timerData = activeTimers.get(gameId);
+        if (!timerData) return res.status(409).json({ error: "Game timer is unavailable" });
+        const now = Date.now();
+        const elapsed = Math.floor((now - timerData.lastMoveTime) / 1000);
+        if (turn === "W") timerData.timerW = Math.max(0, timerData.timerW - elapsed) + timerData.increment;
+        else timerData.timerB = Math.max(0, timerData.timerB - elapsed) + timerData.increment;
+        timerData.turn = nextTurn;
+        timerData.lastMoveTime = now;
+        const moves = JSON.parse(game.moves || "[]");
+        moves.push(toNotation(from.r, from.c) + "-" + toNotation(to.r, to.c));
+        db.run("UPDATE games SET board = ?, turn = ?, timer_w = ?, timer_b = ?, last_move_time = ?, moves = ? WHERE id = ?",
+          [JSON.stringify(board), nextTurn, timerData.timerW, timerData.timerB, now, JSON.stringify(moves), gameId], (updateErr) => {
+            if (updateErr) return res.status(500).json({ error: "Failed to save move" });
+            if (winner) handleGameEnd(io, gameId, winner, "win", null, board, winResult.line, timerData);
+            else io.to(gameId).emit("game_update", { board, turn: nextTurn, status: "active", timerW: timerData.timerW, timerB: timerData.timerB, variant: game.variant, isRated: !!game.is_rated });
+            res.json({ success: true, board, turn: nextTurn, status: winner ? "finished" : "active", winner });
+          });
+      });
+    }));
+  }
 
   function broadcastOnlineCount() {
     io.emit("online_count", onlineCount);
