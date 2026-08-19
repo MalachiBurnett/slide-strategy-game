@@ -80,7 +80,8 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
                       bool pressedOffline, bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,
-                      const Button &btnQuit);
+                      const Button &btnQuit,
+                      int touchX, int touchY, bool touchActive);
 
 void drawGameTopScreen(uint8_t *fb, const GameUiState &game);
 void drawGameBottomScreen(uint8_t *fb, const GameUiState &game,

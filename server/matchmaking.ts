@@ -141,6 +141,20 @@ export function setupMatchmaking(io: Server, app?: express.Application) {
           });
       });
     }));
+
+    app.post("/api/3ds/concede", (req, res) => authenticate3ds(req, res, (user) => {
+      const { gameId } = req.body;
+      db.get("SELECT * FROM games WHERE id = ?", [gameId], (err, game: any) => {
+        if (err || !game || game.status !== "active") return res.status(400).json({ error: "Game is not active" });
+        const playerW = Number(game.player_w);
+        const playerB = Number(game.player_b);
+        if (user.id !== playerW && user.id !== playerB) {
+          return res.status(403).json({ error: "You are not a player in this game" });
+        }
+        handleGameEnd(io, gameId, null, 'forfeit', user.id);
+        res.json({ success: true });
+      });
+    }));
   }
 
   function broadcastOnlineCount() {

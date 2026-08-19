@@ -174,7 +174,8 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
                       bool pressedOffline, bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,
-                      const Button &btnQuit)
+                      const Button &btnQuit,
+                      int touchX, int touchY, bool touchActive)
 {
     clearScreen(fb, BOT_W, BOT_H, C_BG);
 
@@ -207,6 +208,8 @@ void drawBottomScreen(uint8_t *fb, AppState state,
         static const Button back = {8, 172, 148, 26, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
         static const Button continueButton = {164, 172, 148, 26, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
 
+        auto pressed = [&](const Button &b) { return touchActive && buttonHit(b, touchX, touchY); };
+
         if (lobbyPage == LobbyPage::HOME)
         {
             drawText(fb, BOT_W, BOT_H, 8, 38, "WELCOME BACK", 1, C_ACCENT);
@@ -215,28 +218,28 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             snprintf(rating, sizeof(rating), "ELO %s", elo);
             drawText(fb, BOT_W, BOT_H, 236, 50, rating, 1, C_PRIMARY);
             drawText(fb, BOT_W, BOT_H, 8, 64, "CHOOSE A MODE", 1, C_TEXT);
-            drawButton(fb, publicMatch, false, 1, focusVisible && focusIndex == 0);
-            drawButton(fb, privateRoom, false, 1, focusVisible && focusIndex == 1);
-            drawButton(fb, localPlay, false, 1, focusVisible && focusIndex == 2);
-            drawButton(fb, spectate, false, 1, focusVisible && focusIndex == 3);
-            drawButton(fb, btnSignOut, pressedSignOut, 1, focusVisible && focusIndex == 4);
+            drawButton(fb, publicMatch, pressed(publicMatch), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, privateRoom, pressed(privateRoom), 1, focusVisible && focusIndex == 1);
+            drawButton(fb, localPlay, pressed(localPlay), 1, focusVisible && focusIndex == 2);
+            drawButton(fb, spectate, pressed(spectate), 1, focusVisible && focusIndex == 3);
+            drawButton(fb, btnSignOut, pressed(btnSignOut), 1, focusVisible && focusIndex == 4);
         }
         else if (lobbyPage == LobbyPage::PRIVATE_CHOICE)
         {
             drawText(fb, BOT_W, BOT_H, 8, 38, "PRIVATE ROOM", 1, C_ACCENT);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, "Create a room with settings, or join with a code.", 1, C_TEXT);
-            drawButton(fb, createRoom, false, 1, focusVisible && focusIndex == 0);
-            drawButton(fb, joinRoom, false, 1, focusVisible && focusIndex == 1);
-            drawButton(fb, back, false, 1, focusVisible && focusIndex == 2);
-            drawButton(fb, btnQuit, pressedQuit, 1, focusVisible && focusIndex == 3);
+            drawButton(fb, createRoom, pressed(createRoom), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, joinRoom, pressed(joinRoom), 1, focusVisible && focusIndex == 1);
+            drawButton(fb, back, pressed(back), 1, focusVisible && focusIndex == 2);
+            drawButton(fb, btnQuit, pressed(btnQuit), 1, focusVisible && focusIndex == 3);
         }
         else if (lobbyPage == LobbyPage::PRIVATE_JOIN)
         {
             drawText(fb, BOT_W, BOT_H, 8, 38, "JOIN A ROOM", 1, C_ACCENT);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, "Enter the host's join code.", 1, C_TEXT);
-            drawButton(fb, continueButton, false, 1, focusVisible && focusIndex == 0);
-            drawButton(fb, back, false, 1, focusVisible && focusIndex == 1);
-            drawButton(fb, btnQuit, pressedQuit, 1, focusVisible && focusIndex == 2);
+            drawButton(fb, continueButton, pressed(continueButton), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, back, pressed(back), 1, focusVisible && focusIndex == 1);
+            drawButton(fb, btnQuit, pressed(btnQuit), 1, focusVisible && focusIndex == 2);
         }
         else if (lobbyPage == LobbyPage::LOCAL_SETTINGS)
         {
@@ -251,8 +254,8 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 100, BOT_W - 16,
                             "Choose a variant, then press start.", 1, C_ACCENT);
             if (focusVisible && focusIndex == 0) drawRoundRect(fb, BOT_W, BOT_H, 8, 44, BOT_W - 16, 20, 5, 3, C_SUCCESS);
-            drawButton(fb, startLocal, false, 1, focusVisible && focusIndex == 1);
-            drawButton(fb, backLocal, false, 1, focusVisible && focusIndex == 2);
+            drawButton(fb, startLocal, pressed(startLocal), 1, focusVisible && focusIndex == 1);
+            drawButton(fb, backLocal, pressed(backLocal), 1, focusVisible && focusIndex == 2);
         }
         else if (lobbyPage == LobbyPage::QUEUE)
         {
@@ -262,7 +265,7 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 88, BOT_W - 16,
                             "Your settings are locked while you are in the queue.", 1, C_TEXT);
             drawText(fb, BOT_W, BOT_H, 8, 122, "Please keep this screen open.", 1, C_ACCENT);
-            drawButton(fb, cancelQueue, false, 1, focusVisible && focusIndex == 0);
+            drawButton(fb, cancelQueue, pressed(cancelQueue), 1, focusVisible && focusIndex == 0);
         }
         else
         {
@@ -289,14 +292,14 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             if (focusVisible && focusIndex == 0) drawRoundRect(fb, BOT_W, BOT_H, 8, 28, BOT_W - 16, 20, 5, 3, C_SUCCESS);
             if (focusVisible && focusIndex == 1) drawRoundRect(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, 20, 5, 3, C_SUCCESS);
             if (focusVisible && focusIndex == 2) drawRoundRect(fb, BOT_W, BOT_H, 8, 76, BOT_W - 16, 20, 5, 3, C_SUCCESS);
-            drawButton(fb, continueButton, false, 1, focusVisible && focusIndex == 3);
-            drawButton(fb, back, false, 1, focusVisible && focusIndex == 4);
+            drawButton(fb, continueButton, pressed(continueButton), 1, focusVisible && focusIndex == 3);
+            drawButton(fb, back, pressed(back), 1, focusVisible && focusIndex == 4);
         }
 
         if (lobbyPage == LobbyPage::HOME ||
             lobbyPage == LobbyPage::PUBLIC_SETTINGS ||
             lobbyPage == LobbyPage::PRIVATE_CREATE)
-            drawButton(fb, btnQuit, pressedQuit, 1, focusVisible && focusIndex == 5);
+            drawButton(fb, btnQuit, pressed(btnQuit), 1, focusVisible && focusIndex == 5);
     }
     else if (state == AppState::KEYBOARD_LOGIN)
     {
@@ -415,7 +418,7 @@ void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
 
     drawStepTab(fb, 16,  116, "SELECT",  stepSelect);
     drawStepTab(fb, 142, 116, "MOVE",    stepMove);
-    drawStepTab(fb, 268, 116, "CONFIRM", stepConfirm);
+    drawStepTab(fb, 268, 116, "SEND", stepConfirm);
 
     fillRoundRect(fb, TOP_W, TOP_H, 12, 66, 376, 104, 10, C_BG_DARK);
     drawRoundRect(fb, TOP_W, TOP_H, 12, 66, 376, 104, 10, 2, C_ACCENT);
@@ -429,22 +432,22 @@ void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
     }
     else if (stepConfirm)
     {
-        drawText(fb, TOP_W, TOP_H, rx, 78, "CONFIRM YOUR MOVE", 1, C_PRIMARY);
-        drawGameInstructionRow(fb, rx, 106, "A", game.isOnline ? "SEND MOVE" : "APPLY MOVE");
-        drawGameInstructionRow(fb, rx, 130, "B", "CHOOSE AGAIN");
+        drawText(fb, TOP_W, TOP_H, rx, 78, "SENDING MOVE", 1, C_PRIMARY);
+        drawGameInstructionRow(fb, rx, 106, "SENDING", game.isOnline ? "TO THE SERVER" : "APPLYING MOVE");
+        drawGameInstructionRow(fb, rx, 130, "WAIT", "FOR THE SERVER TO REPLY");
     }
     else if (stepMove)
     {
         drawText(fb, TOP_W, TOP_H, rx, 78, "MOVE YOUR PIECE", 1, C_PRIMARY);
         drawGameInstructionRow(fb, rx, 106, "DPAD", "AIM DESTINATION");
-        drawGameInstructionRow(fb, rx, 130, "A", "CONFIRM DESTINATION");
+        drawGameInstructionRow(fb, rx, 130, "A/TOUCH", "SEND MOVE");
         drawGameInstructionRow(fb, rx, 154, "B", "CANCEL SELECTION");
     }
     else
     {
         drawText(fb, TOP_W, TOP_H, rx, 78, "SELECT A PIECE", 1, C_PRIMARY);
         drawGameInstructionRow(fb, rx, 106, "DPAD", "MOVE CURSOR");
-        drawGameInstructionRow(fb, rx, 130, "A", "SELECT PIECE");
+        drawGameInstructionRow(fb, rx, 130, "A/TOUCH", "SELECT PIECE");
         drawGameInstructionRow(fb, rx, 154, "B", "BACK TO LOBBY");
     }
 

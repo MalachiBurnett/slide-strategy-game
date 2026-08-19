@@ -137,55 +137,93 @@ static int focusCount(AppState state, LobbyPage page)
     return 6;
 }
 
-static bool focusPoint(AppState state, LobbyPage page, int focus,
-                       int &x, int &y)
+static int focusPoints(AppState state, LobbyPage page, int outX[6], int outY[6])
 {
+    const int (*pts)[2] = nullptr;
+    int n = 0;
     if (state == AppState::QR_LOGIN || state == AppState::ERROR_STATE)
     {
-        if (focus == 0) { x = BOT_W / 2; y = 125; return true; }
-        if (focus == 1) { x = BOT_W / 2; y = 165; return true; }
-        if (focus == 2) { x = BOT_W / 2; y = 198; return true; }
-        if (focus == 3) { x = BOT_W / 2; y = 222; return true; }
+        static const int p[][2] = {{BOT_W / 2, 125}, {BOT_W / 2, 165},
+                                   {BOT_W / 2, 198}, {BOT_W / 2, 222}};
+        pts = p; n = 4;
     }
     else if (state == AppState::INIT)
     {
-        x = BOT_W / 2; y = 222; return true;
+        static const int p[][2] = {{BOT_W / 2, 222}};
+        pts = p; n = 1;
     }
     else if (state == AppState::LOGGED_IN)
     {
         if (page == LobbyPage::HOME)
         {
-            static const int points[][2] = {{82, 97}, {238, 97}, {82, 145},
-                                             {238, 145}, {160, 181}, {160, 222}};
-            if (focus >= 0 && focus < 6) { x = points[focus][0]; y = points[focus][1]; return true; }
+            static const int p[][2] = {{82, 97}, {238, 97}, {82, 145},
+                                       {238, 145}, {160, 181}, {160, 222}};
+            pts = p; n = 6;
         }
         else if (page == LobbyPage::PRIVATE_CHOICE)
         {
-            static const int points[][2] = {{82, 109}, {238, 109}, {82, 185}, {160, 222}};
-            if (focus >= 0 && focus < 4) { x = points[focus][0]; y = points[focus][1]; return true; }
+            static const int p[][2] = {{82, 109}, {238, 109}, {82, 185}, {160, 222}};
+            pts = p; n = 4;
         }
         else if (page == LobbyPage::PRIVATE_JOIN)
         {
-            static const int points[][2] = {{238, 185}, {82, 185}, {160, 222}};
-            if (focus >= 0 && focus < 3) { x = points[focus][0]; y = points[focus][1]; return true; }
+            static const int p[][2] = {{238, 185}, {82, 185}, {160, 222}};
+            pts = p; n = 3;
         }
         else if (page == LobbyPage::LOCAL_SETTINGS)
         {
-            static const int points[][2] = {{160, 54}, {238, 185}, {82, 185}};
-            if (focus >= 0 && focus < 3) { x = points[focus][0]; y = points[focus][1]; return true; }
+            static const int p[][2] = {{160, 54}, {238, 185}, {82, 185}};
+            pts = p; n = 3;
         }
         else if (page == LobbyPage::QUEUE)
         {
-            x = BOT_W / 2; y = 175; return focus == 0;
+            static const int p[][2] = {{BOT_W / 2, 175}};
+            pts = p; n = 1;
         }
         else
         {
-            static const int points[][2] = {{160, 38}, {160, 62}, {160, 86},
-                                             {238, 173}, {82, 173}, {160, 222}};
-            if (focus >= 0 && focus < 6) { x = points[focus][0]; y = points[focus][1]; return true; }
+            static const int p[][2] = {{160, 38}, {160, 62}, {160, 86},
+                                       {238, 173}, {82, 173}, {160, 222}};
+            pts = p; n = 6;
         }
     }
-    return false;
+    for (int i = 0; i < n; ++i) { outX[i] = pts[i][0]; outY[i] = pts[i][1]; }
+    return n;
+}
+
+// Pick the focus target spatially: move in the pressed direction, preferring
+// the nearest button that is aligned with the current one.
+static int focusMove(const int xs[6], const int ys[6], int n, int focus,
+                     int dx, int dy)
+{
+    if (n <= 0) return focus;
+    int best = -1;
+    int bestScore = 0x7FFFFFFF;
+    for (int i = 0; i < n; ++i)
+    {
+        if (i == focus) continue;
+        if (dx != 0 && (xs[i] - xs[focus] < 0) != (dx < 0)) continue;
+        if (dy != 0 && (ys[i] - ys[focus] < 0) != (dy < 0)) continue;
+        int primary = dx != 0 ? abs(xs[i] - xs[focus]) : abs(ys[i] - ys[focus]);
+        int perp    = dx != 0 ? abs(ys[i] - ys[focus]) : abs(xs[i] - xs[focus]);
+        int score   = primary + perp * 2;
+        if (score < bestScore) { bestScore = score; best = i; }
+    }
+    if (best >= 0) return best;
+    // Nothing in that direction — wrap around the linear order.
+    int step = (dx + dy > 0) ? 1 : -1;
+    return (focus + step + n) % n;
+}
+
+static bool focusPoint(AppState state, LobbyPage page, int focus,
+                       int &x, int &y)
+{
+    int xs[6], ys[6];
+    int n = focusPoints(state, page, xs, ys);
+    if (focus < 0 || focus >= n) return false;
+    x = xs[focus];
+    y = ys[focus];
+    return true;
 }
 
 static void goBack(AppState state, LobbyPage &page, char *statusMsg)
@@ -299,10 +337,10 @@ static void selectGamePiece(GameUiState &game, int r, int c)
     game.cursorCol = c;
     game.pieceSelected = chooseFirstDestination(game);
     game.confirmMove = false;
-    game.statusMsg = "Use DPAD to choose a direction";
+    game.statusMsg = "Aim a direction with DPAD or touch";
 }
 
-static void moveGameCursor(GameUiState &game, int direction)
+static bool moveGameCursor(GameUiState &game, int direction)
 {
     if (!game.pieceSelected)
     {
@@ -310,7 +348,7 @@ static void moveGameCursor(GameUiState &game, int direction)
         if (direction == 1) game.cursorRow = (game.cursorRow + 1) % 6;
         if (direction == 2) game.cursorCol = (game.cursorCol + 1) % 6;
         if (direction == 3) game.cursorRow = (game.cursorRow + 5) % 6;
-        return;
+        return true;
     }
     static const int dirs[][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
     const int dr = dirs[direction][0];
@@ -332,7 +370,38 @@ static void moveGameCursor(GameUiState &game, int direction)
         game.targetCol = lastC;
         game.cursorRow = lastR;
         game.cursorCol = lastC;
+        return true;
     }
+    return false;
+}
+
+// If (r, c) lies along an open line from the selected piece, aim the move in
+// that direction (target = far end) and return true.
+static bool trySetDirectionToCell(GameUiState &game, int r, int c)
+{
+    const int sr = game.selectedRow;
+    const int sc = game.selectedCol;
+    if (sr < 0 || sc < 0) return false;
+    if (r == sr && c == sc) return false;
+    int dr = 0, dc = 0;
+    if (r == sr) dc = (c > sc) ? 1 : -1;
+    else if (c == sc) dr = (r > sr) ? 1 : -1;
+    else return false;
+
+    int lastR = sr, lastC = sc;
+    bool reached = false;
+    for (int nr = sr + dr, nc = sc + dc;
+         nr >= 0 && nr < 6 && nc >= 0 && nc < 6 && game.board[nr][nc] == '0';
+         nr += dr, nc += dc)
+    {
+        if (nr == r && nc == c) reached = true;
+        lastR = nr;
+        lastC = nc;
+    }
+    if (!reached) return false;
+    game.targetRow = lastR;
+    game.targetCol = lastC;
+    return true;
 }
 
 static void applyGameMove(GameUiState &game)
@@ -403,6 +472,8 @@ int main()
     static const Button BTN_MATCH_SETTING = {8, 28, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
     static const Button BTN_TIME_SETTING = {8, 52, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
     static const Button BTN_VARIANT_SETTING = {8, 76, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
+    static const Button BTN_CONCEDE  = {246, 96, 68, 48, "Concede", C_ERROR, C_PRIMARY_TXT, C_ACCENT};
+    static const Button BTN_GAME_EXIT = {246, 96, 68, 48, "Exit", C_BG_DARK, C_TEXT, C_ACCENT};
 
     // ---------------------------------------------------------------------------
     // State
@@ -429,6 +500,9 @@ int main()
     char pollingGameId[64] = {};
     u64 lastPollingTick = 0;
     constexpr u64 POLLING_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 1000;
+    bool sendPending = false;
+    int pressPulse = 0;
+    constexpr int PRESS_PULSE_FRAMES = 5;
 
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -439,11 +513,47 @@ int main()
     bool pressedOffline = false;
     bool pressedSignOut = false;
     bool pressedQuit   = false;
+    bool pressedConcede = false;
+    bool pressedExit    = false;
     bool returnToErrorAfterKeyboardCancel = false;
 
     u64 lastPollTick = 0;
     constexpr u64 POLL_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 2000;
-    int previousNavDirection = 0;
+    int previousNavDx = 0;
+    int previousNavDy = 0;
+
+    // Render one frame from the current state. Also draws the press-pulse ring
+    // so any button press is immediately acknowledged on screen.
+    auto renderFrame = [&](int touchX, int touchY, bool touchActive)
+    {
+        uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
+        uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
+
+        if (gameActive)
+        {
+            drawGameTopScreen(topFb, game);
+            drawGameBottomScreen(botFb, game, pressedConcede, pressedExit);
+        }
+        else
+        {
+            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg);
+            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
+                             pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
+                             BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive);
+        }
+
+        if (pressPulse > 0)
+        {
+            fillRect(botFb, BOT_W, BOT_H, 0, 0, BOT_W, 3, C_SUCCESS);
+            fillRect(botFb, BOT_W, BOT_H, 0, BOT_H - 3, BOT_W, 3, C_SUCCESS);
+            fillRect(botFb, BOT_W, BOT_H, 0, 0, 3, BOT_H, C_SUCCESS);
+            fillRect(botFb, BOT_W, BOT_H, BOT_W - 3, 0, 3, BOT_H, C_SUCCESS);
+        }
+
+        gfxFlushBuffers();
+        gfxSwapBuffers();
+        gspWaitForVBlank();
+    };
 
     // ---------------------------------------------------------------------------
     // Show "connecting" splash while we make the initial network calls
@@ -459,14 +569,14 @@ int main()
                      "SOC init failed (0x%08lX) - check WiFi", socResult);
             state = AppState::ERROR_STATE;
             drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, statusMsg);
-            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, 0, 0, false);
             gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
             // Skip network steps; fall straight through to the main loop
             goto main_loop;
         }
 
         drawTopScreen   (topFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, "Checking saved login...");
-        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, 0, 0, false);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
 
@@ -545,6 +655,7 @@ main_loop:
         hidScanInput();
         u32 kDown = hidKeysDown();
         u32 kHeld = hidKeysHeld();
+        if (kDown) pressPulse = PRESS_PULSE_FRAMES;
 
         touchPosition touch;
         hidTouchRead(&touch);
@@ -553,6 +664,40 @@ main_loop:
 
         circlePosition circle;
         hidCircleRead(&circle);
+
+        // Send a confirmed online move on the frame AFTER it was confirmed,
+        // so the "SENDING MOVE" page stays visible while the HTTP call runs.
+        if (sendPending)
+        {
+            sendPending = false;
+            char moveJson[192];
+            snprintf(moveJson, sizeof(moveJson),
+                     "{\"authCode\":\"%s\",\"gameId\":\"%s\",\"from\":{\"r\":%d,\"c\":%d},\"to\":{\"r\":%d,\"c\":%d}}",
+                     savedAuthCode, pollingGameId, game.selectedRow, game.selectedCol,
+                     game.targetRow, game.targetCol);
+            CurlBuf moveResponse = allocBuf();
+            CURLcode moveCurl = CURLE_OK;
+            char moveError[CURL_ERROR_SIZE] = {};
+            long moveHttp = httpPost("/api/3ds/move", moveJson, moveResponse, moveCurl, moveError);
+            if (moveHttp != 200)
+            {
+                char serverError[160] = {};
+                jsonExtract(moveResponse.data, "error", serverError, sizeof(serverError));
+                snprintf(statusMsg, sizeof(statusMsg), "%s", serverError[0] ? serverError :
+                         (moveError[0] ? moveError : "Move failed"));
+                game.confirmMove = false;
+                game.statusMsg = statusMsg;
+            }
+            else
+            {
+                game.confirmMove = false;
+                game.pieceSelected = false;
+                game.turn = game.player == 'W' ? 'B' : 'W';
+                game.statusMsg = "Move sent. Waiting for server";
+                lastPollingTick = 0;
+            }
+            freeBuf(moveResponse);
+        }
 
         if (state == AppState::LOGGED_IN &&
             (queueing || (onlineGame && game.turn != game.player)) &&
@@ -607,20 +752,33 @@ main_loop:
             freeBuf(response);
         }
 
-        int navDirection = 0;
-        if (kDown & (KEY_DUP | KEY_DLEFT)) navDirection = -1;
-        else if (kDown & (KEY_DDOWN | KEY_DRIGHT)) navDirection = 1;
-        else if (circle.dy > 120 || circle.dx < -120) navDirection = -1;
-        else if (circle.dy < -120 || circle.dx > 120) navDirection = 1;
+        int navDx = 0, navDy = 0;
+        if (kDown & KEY_DLEFT) navDx = -1;
+        else if (kDown & KEY_DRIGHT) navDx = 1;
+        else if (kDown & KEY_DUP) navDy = -1;
+        else if (kDown & KEY_DDOWN) navDy = 1;
+        else if (circle.dx < -120) navDx = -1;
+        else if (circle.dx > 120) navDx = 1;
+        else if (circle.dy > 120) navDy = -1;
+        else if (circle.dy < -120) navDy = 1;
 
         const int currentFocusCount = focusCount(state, lobbyPage);
-        if (navDirection == 0)
-            previousNavDirection = 0;
-        else if (navDirection != previousNavDirection && currentFocusCount > 0)
+        if (navDx == 0 && navDy == 0)
         {
-            focusIndex = (focusIndex + navDirection + currentFocusCount) % currentFocusCount;
-            focusVisible = true;
-            previousNavDirection = navDirection;
+            previousNavDx = 0;
+            previousNavDy = 0;
+        }
+        else if ((navDx != previousNavDx || navDy != previousNavDy) && currentFocusCount > 0)
+        {
+            int xs[6], ys[6];
+            int n = focusPoints(state, lobbyPage, xs, ys);
+            if (n > 0)
+            {
+                focusIndex = focusMove(xs, ys, n, focusIndex, navDx, navDy);
+                focusVisible = true;
+            }
+            previousNavDx = navDx;
+            previousNavDy = navDy;
         }
 
         if ((kDown & KEY_B) && state == AppState::LOGGED_IN && lobbyPage != LobbyPage::HOME)
@@ -629,7 +787,7 @@ main_loop:
             focusIndex = 0;
         }
 
-        if (kDown & KEY_A)
+        if (!gameActive && (kDown & KEY_A))
         {
             int focusX = 0;
             int focusY = 0;
@@ -648,10 +806,8 @@ main_loop:
         pressedOffline = touchHeld && buttonHit(BTN_OFFLINE, touch.px, touch.py);
         pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
         pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
-        static const Button BTN_CONCEDE  = {246, 96, 68, 48, "Concede", C_ERROR, C_PRIMARY_TXT, C_ACCENT};
-        static const Button BTN_GAME_EXIT = {246, 96, 68, 48, "Exit", C_BG_DARK, C_TEXT, C_ACCENT};
-        bool pressedConcede = touchHeld && buttonHit(BTN_CONCEDE,  touch.px, touch.py);
-        bool pressedExit    = touchHeld && buttonHit(BTN_GAME_EXIT, touch.px, touch.py);
+        pressedConcede = touchHeld && buttonHit(BTN_CONCEDE,  touch.px, touch.py);
+        pressedExit    = touchHeld && buttonHit(BTN_GAME_EXIT, touch.px, touch.py);
 
         if (kDown & KEY_START) break;
 
@@ -659,12 +815,7 @@ main_loop:
         {
             if (kDown & KEY_B)
             {
-                if (game.confirmMove)
-                {
-                    game.confirmMove = false;
-                    game.statusMsg = "Choose a direction";
-                }
-                else if (game.pieceSelected)
+                if (game.pieceSelected)
                 {
                     game.pieceSelected = false;
                     game.selectedRow = game.selectedCol = -1;
@@ -691,18 +842,40 @@ main_loop:
             else if (circle.dx > 120) gameDirection = 2;
             else if (circle.dy > 120) gameDirection = 3;
             if (gameDirection >= 0 && !game.confirmMove)
-                moveGameCursor(game, gameDirection);
+            {
+                if (!moveGameCursor(game, gameDirection))
+                {
+                    game.statusMsg = "Blocked - no room to slide";
+                    pressPulse = PRESS_PULSE_FRAMES;
+                }
+            }
 
             if (touched && touch.px >= 12 && touch.px < 240 && touch.py >= 6 && touch.py < 234)
             {
                 int c = (touch.px - 12) / 38;
                 int r = (touch.py - 6) / 38;
-                if (!game.pieceSelected) selectGamePiece(game, r, c);
-                else if (r == game.targetRow && c == game.targetCol) game.confirmMove = true;
-                else if (game.board[r][c] == game.player) selectGamePiece(game, r, c);
+                if (!game.pieceSelected)
+                    selectGamePiece(game, r, c);
+                else if (trySetDirectionToCell(game, r, c))
+                {
+                    game.cursorRow = game.targetRow;
+                    game.cursorCol = game.targetCol;
+                    if (onlineGame)
+                    {
+                        game.statusMsg = "Sending move...";
+                        game.confirmMove = true;
+                        sendPending = true;
+                    }
+                    else
+                        applyGameMove(game);
+                }
+                else if (game.board[r][c] == game.player)
+                    selectGamePiece(game, r, c);
             }
             else if (touched && onlineGame && buttonHit(BTN_CONCEDE, touch.px, touch.py))
             {
+                game.statusMsg = "Forfeiting...";
+                renderFrame(touch.px, touch.py, touchHeld);
                 char concedeJson[128];
                 snprintf(concedeJson, sizeof(concedeJson),
                          "{\"authCode\":\"%s\",\"gameId\":\"%s\"}", savedAuthCode, pollingGameId);
@@ -723,45 +896,19 @@ main_loop:
                 gameActive = false;
                 statusMsg[0] = 0;
             }
-            if ((kDown & KEY_A) && !game.confirmMove)
-            {
-                if (!game.pieceSelected) selectGamePiece(game, game.cursorRow, game.cursorCol);
-                else game.confirmMove = true;
-            }
-            else if ((kDown & KEY_A) && game.confirmMove)
+            if ((kDown & KEY_A) && game.pieceSelected)
             {
                 if (onlineGame)
                 {
-                    char moveJson[192];
-                    snprintf(moveJson, sizeof(moveJson),
-                             "{\"authCode\":\"%s\",\"gameId\":\"%s\",\"from\":{\"r\":%d,\"c\":%d},\"to\":{\"r\":%d,\"c\":%d}}",
-                             savedAuthCode, pollingGameId, game.selectedRow, game.selectedCol,
-                             game.targetRow, game.targetCol);
-                    CurlBuf moveResponse = allocBuf();
-                    CURLcode moveCurl = CURLE_OK;
-                    char moveError[CURL_ERROR_SIZE] = {};
-                    long moveHttp = httpPost("/api/3ds/move", moveJson, moveResponse, moveCurl, moveError);
-                    if (moveHttp != 200)
-                    {
-                        char serverError[160] = {};
-                        jsonExtract(moveResponse.data, "error", serverError, sizeof(serverError));
-                        snprintf(statusMsg, sizeof(statusMsg), "%s", serverError[0] ? serverError :
-                                 (moveError[0] ? moveError : "Move failed"));
-                        game.confirmMove = false;
-                    }
-                    else
-                    {
-                        game.confirmMove = false;
-                        game.pieceSelected = false;
-                        game.turn = game.player == 'W' ? 'B' : 'W';
-                        game.statusMsg = "Move sent. Waiting for server";
-                        lastPollingTick = 0;
-                    }
-                    freeBuf(moveResponse);
+                    game.statusMsg = "Sending move...";
+                    game.confirmMove = true;
+                    sendPending = true;
                 }
                 else
                     applyGameMove(game);
             }
+            else if (kDown & KEY_A)
+                selectGamePiece(game, game.cursorRow, game.cursorCol);
             goto render;
         }
 
@@ -780,6 +927,9 @@ main_loop:
                 loginCode[0] = 0;
                 loginUrl[0] = 0;
                 qrReady = false;
+
+                snprintf(statusMsg, sizeof(statusMsg), "Signing out...");
+                renderFrame(touch.px, touch.py, touchHeld);
 
                 CurlBuf resp = allocBuf();
                 CURLcode cc = CURLE_OK;
@@ -849,6 +999,8 @@ main_loop:
                 }
                 else if (lobbyPage == LobbyPage::QUEUE && buttonHit(cancelQueue, touch.px, touch.py))
                 {
+                    snprintf(statusMsg, sizeof(statusMsg), "Leaving queue...");
+                    renderFrame(touch.px, touch.py, touchHeld);
                     char leaveJson[96];
                     snprintf(leaveJson, sizeof(leaveJson), "{\"authCode\":\"%s\"}", savedAuthCode);
                     CurlBuf leaveResponse = allocBuf();
@@ -904,6 +1056,8 @@ main_loop:
                     else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS)
                     {
                         static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
+                        snprintf(statusMsg, sizeof(statusMsg), "Joining matchmaking...");
+                        renderFrame(touch.px, touch.py, touchHeld);
                         char queueJson[160];
                         snprintf(queueJson, sizeof(queueJson),
                                  "{\"authCode\":\"%s\",\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
@@ -960,6 +1114,7 @@ main_loop:
             {
                 state = AppState::INIT;
                 snprintf(statusMsg, sizeof(statusMsg), "Starting guest session...");
+                renderFrame(touch.px, touch.py, touchHeld);
 
                 CurlBuf resp = allocBuf();
                 CURLcode cc = CURLE_OK;
@@ -1007,6 +1162,9 @@ main_loop:
                 char json[256];
                 snprintf(json, sizeof(json),
                          "{\"username\":\"%s\",\"password\":\"%s\"}", kbdUser, kbdPass);
+
+                snprintf(statusMsg, sizeof(statusMsg), "Signing in...");
+                renderFrame(touch.px, touch.py, touchHeld);
 
                 CurlBuf  resp = allocBuf();
                 CURLcode cc   = CURLE_OK;
@@ -1129,26 +1287,8 @@ main_loop:
         }
 
     render:
-        {
-            uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
-            uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
-
-            if (gameActive)
-            {
-                drawGameTopScreen(topFb, game);
-                drawGameBottomScreen(botFb, game, pressedConcede, pressedExit);
-            }
-            else
-            {
-                drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg);
-                drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, pressedSignIn, pressedGuest, pressedSignOut,
-                                 pressedOffline, pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
-            }
-
-            gfxFlushBuffers();
-            gfxSwapBuffers();
-            gspWaitForVBlank();
-        }
+        renderFrame(touch.px, touch.py, touchHeld);
+        if (pressPulse > 0) --pressPulse;
     }
 
     curl_global_cleanup();
