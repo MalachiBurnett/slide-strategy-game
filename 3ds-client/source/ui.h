@@ -45,11 +45,16 @@ void drawButton(uint8_t *fb, const Button &btn, bool pressed, int textScale = 1)
 // Screen drawing
 // ---------------------------------------------------------------------------
 void drawTopScreen   (uint8_t *fb, AppState state,
+                      LobbyPage lobbyPage,
+                      const char *username, const char *elo,
+                      bool isRated, int timeControl, int variant,
                       const uint8_t *qrData, bool qrReady,
                       const char *statusMsg);
 
 void drawBottomScreen(uint8_t *fb, AppState state,
                       LobbyPage lobbyPage,
+                      const char *username, const char *elo,
+                      bool isRated, int timeControl, int variant,
                       bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
                       bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,

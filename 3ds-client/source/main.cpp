@@ -138,25 +138,28 @@ int main()
     // Button layout
     // ---------------------------------------------------------------------------
     static const Button BTN_SIGNIN = {
-        16, 108, BOT_W - 32, 30,
+        16, 108, BOT_W - 32, 34,
         "Sign in on this device",
         C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}
     };
     static const Button BTN_GUEST = {
-        16, 144, BOT_W - 32, 30,
+        16, 148, BOT_W - 32, 34,
         "Play as guest",
         C_BG_DARK, C_TEXT, C_ACCENT
     };
     static const Button BTN_QUIT = {
-        16, 180, BOT_W - 32, 30,
+        16, 212, BOT_W - 32, 20,
         "Quit",
         C_BG_DARK, C_TEXT, C_ACCENT
     };
     static const Button BTN_SIGNOUT = {
-        16, 135, BOT_W - 32, 38,
+        16, 188, BOT_W - 32, 24,
         "Sign out",
         C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}
     };
+    static const Button BTN_MATCH_SETTING = {8, 52, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
+    static const Button BTN_TIME_SETTING = {8, 76, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
+    static const Button BTN_VARIANT_SETTING = {8, 100, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
 
     // ---------------------------------------------------------------------------
     // State
@@ -170,6 +173,9 @@ int main()
     char elo[16]        = "600";
     char joinCode[32]   = {};
     LobbyPage lobbyPage = LobbyPage::HOME;
+    bool isRated = true;
+    int timeControl = 0;
+    int variant = 0;
 
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -197,15 +203,15 @@ int main()
             snprintf(statusMsg, sizeof(statusMsg),
                      "SOC init failed (0x%08lX) - check WiFi", socResult);
             state = AppState::ERROR_STATE;
-            drawTopScreen   (topFb, state, nullptr, false, statusMsg);
-            drawBottomScreen(botFb, state, lobbyPage, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, nullptr, false, statusMsg);
+            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
             gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
             // Skip network steps; fall straight through to the main loop
             goto main_loop;
         }
 
-        drawTopScreen   (topFb, AppState::INIT, nullptr, false, "Checking saved login...");
-        drawBottomScreen(botFb, AppState::INIT, lobbyPage, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+        drawTopScreen   (topFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, nullptr, false, "Checking saved login...");
+        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
 
@@ -301,7 +307,8 @@ main_loop:
             if (buttonHit(BTN_QUIT, touch.px, touch.py))
                 break;
 
-            if (state == AppState::LOGGED_IN && buttonHit(BTN_SIGNOUT, touch.px, touch.py))
+            if (state == AppState::LOGGED_IN && lobbyPage == LobbyPage::HOME &&
+                buttonHit(BTN_SIGNOUT, touch.px, touch.py))
             {
                 deleteAuthCode();
                 username[0] = 0;
@@ -337,15 +344,16 @@ main_loop:
                 }
                 freeBuf(resp);
             }
-
-            if (state == AppState::LOGGED_IN)
+            else if (state == AppState::LOGGED_IN)
             {
-                static const Button publicMatch = {8, 42, 152, 48, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button privateRoom = {168, 42, 152, 48, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button localPlay = {8, 98, 152, 48, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
-                static const Button spectate = {168, 98, 152, 48, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button back = {8, 174, 152, 34, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button continueButton = {168, 174, 152, 34, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button publicMatch = {8, 76, 148, 48, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button privateRoom = {164, 76, 148, 48, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button createRoom = {8, 76, 148, 48, "Create room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button joinRoom = {164, 76, 148, 48, "Join room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button localPlay = {8, 130, 148, 48, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
+                static const Button spectate = {164, 130, 148, 48, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button back = {8, 174, 148, 30, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button continueButton = {164, 174, 148, 30, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
 
                 if (lobbyPage == LobbyPage::HOME)
                 {
@@ -356,13 +364,34 @@ main_loop:
                 }
                 else if (buttonHit(back, touch.px, touch.py))
                 {
-                    if (lobbyPage == LobbyPage::PRIVATE_CHOICE || lobbyPage == LobbyPage::PUBLIC_SETTINGS) lobbyPage = LobbyPage::HOME;
-                    else if (lobbyPage == LobbyPage::PRIVATE_CREATE || lobbyPage == LobbyPage::PRIVATE_JOIN) lobbyPage = LobbyPage::PRIVATE_CHOICE;
+                    if (lobbyPage == LobbyPage::PRIVATE_CREATE || lobbyPage == LobbyPage::PRIVATE_JOIN)
+                        lobbyPage = LobbyPage::PRIVATE_CHOICE;
+                    else
+                        lobbyPage = LobbyPage::HOME;
+                    statusMsg[0] = 0;
                 }
                 else if (lobbyPage == LobbyPage::PRIVATE_CHOICE)
                 {
-                    if (buttonHit(publicMatch, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CREATE;
-                    else if (buttonHit(privateRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_JOIN;
+                    if (buttonHit(createRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CREATE;
+                    else if (buttonHit(joinRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_JOIN;
+                }
+                else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS || lobbyPage == LobbyPage::PRIVATE_CREATE)
+                {
+                    if (buttonHit(BTN_MATCH_SETTING, touch.px, touch.py))
+                    {
+                        isRated = !isRated;
+                        snprintf(statusMsg, sizeof(statusMsg), "%s selected", isRated ? "Ranked" : "Casual");
+                    }
+                    else if (buttonHit(BTN_TIME_SETTING, touch.px, touch.py))
+                    {
+                        timeControl = (timeControl + 1) % 3;
+                        snprintf(statusMsg, sizeof(statusMsg), "Time control changed");
+                    }
+                    else if (buttonHit(BTN_VARIANT_SETTING, touch.px, touch.py))
+                    {
+                        variant = (variant + 1) % 4;
+                        snprintf(statusMsg, sizeof(statusMsg), "Variant changed");
+                    }
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_JOIN)
                 {
@@ -375,14 +404,14 @@ main_loop:
                 }
             }
 
-            if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
+            else if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
                 buttonHit(BTN_SIGNIN, touch.px, touch.py))
             {
                 returnToErrorAfterKeyboardCancel = state == AppState::ERROR_STATE;
                 state = AppState::KEYBOARD_LOGIN;
             }
 
-            if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
+            else if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
                 buttonHit(BTN_GUEST, touch.px, touch.py))
             {
                 state = AppState::INIT;
@@ -554,8 +583,8 @@ main_loop:
             uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
             uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
 
-            drawTopScreen   (topFb, state, qrData, qrReady, statusMsg);
-            drawBottomScreen(botFb, state, lobbyPage, pressedSignIn, pressedGuest, pressedSignOut,
+            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, qrData, qrReady, statusMsg);
+            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, pressedSignIn, pressedGuest, pressedSignOut,
                              pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
 
             gfxFlushBuffers();
