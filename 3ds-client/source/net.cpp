@@ -153,3 +153,135 @@ long httpPost(const char *path,
     curl_easy_cleanup(c);
     return code;
 }
+
+SocketIoClient::SocketIoClient() : curl(nullptr), connected(false) {}
+
+SocketIoClient::~SocketIoClient()
+{
+    close();
+}
+
+bool SocketIoClient::connect(char *error, int errorLen)
+{
+    close();
+    if (error && errorLen > 0) error[0] = 0;
+
+    curl = curl_easy_init();
+    if (!curl)
+    {
+        snprintf(error, errorLen, "Socket.IO: curl initialization failed");
+        return false;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL,
+                     "wss://slide.wiizardsoftware.uk/socket.io/?EIO=4&transport=websocket");
+    curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 8L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    curl_easy_setopt(curl, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+    CURLcode result = curl_easy_perform(curl);
+    if (result != CURLE_OK)
+    {
+        snprintf(error, errorLen, "Socket.IO connect failed (%d): %s",
+                 (int)result, curl_easy_strerror(result));
+        close();
+        return false;
+    }
+
+    connected = true;
+    size_t sent = 0;
+    const char namespaceConnect[] = "40";
+    result = curl_ws_send(curl, namespaceConnect, sizeof(namespaceConnect) - 1,
+                          &sent, 0, CURLWS_TEXT);
+    if (result != CURLE_OK)
+    {
+        snprintf(error, errorLen, "Socket.IO handshake failed (%d): %s",
+                 (int)result, curl_easy_strerror(result));
+        close();
+        return false;
+    }
+    return true;
+}
+
+void SocketIoClient::close()
+{
+    if (curl)
+    {
+        if (connected)
+        {
+            size_t sent = 0;
+            const char closeFrame[] = "41";
+            curl_ws_send(curl, closeFrame, sizeof(closeFrame) - 1,
+                         &sent, 0, CURLWS_TEXT);
+        }
+        curl_easy_cleanup(curl);
+    }
+    curl = nullptr;
+    connected = false;
+}
+
+bool SocketIoClient::isConnected() const
+{
+    return connected;
+}
+
+bool SocketIoClient::sendEvent(const char *event, const char *jsonData,
+                               char *error, int errorLen)
+{
+    if (!connected || !curl)
+    {
+        snprintf(error, errorLen, "Socket.IO is not connected");
+        return false;
+    }
+
+    char packet[512];
+    snprintf(packet, sizeof(packet), "42[\"%s\",%s]", event,
+             jsonData && jsonData[0] ? jsonData : "null");
+    return sendRaw(packet, error, errorLen);
+}
+
+bool SocketIoClient::sendRaw(const char *packet, char *error, int errorLen)
+{
+    if (!connected || !curl)
+    {
+        snprintf(error, errorLen, "Socket.IO is not connected");
+        return false;
+    }
+    size_t sent = 0;
+    CURLcode result = curl_ws_send(curl, packet, strlen(packet), &sent, 0, CURLWS_TEXT);
+    if (result != CURLE_OK || sent != strlen(packet))
+    {
+        snprintf(error, errorLen, "Socket.IO send failed (%d): %s",
+                 (int)result, curl_easy_strerror(result));
+        return false;
+    }
+    return true;
+}
+
+bool SocketIoClient::receive(char *out, int outLen, char *error, int errorLen)
+{
+    if (!connected || !curl) return false;
+    if (!out || outLen < 2) return false;
+
+    size_t received = 0;
+    const struct curl_ws_frame *meta = nullptr;
+    CURLcode result = curl_ws_recv(curl, out, outLen - 1, &received, &meta);
+    if (result == CURLE_AGAIN) return false;
+    if (result != CURLE_OK)
+    {
+        snprintf(error, errorLen, "Socket.IO receive failed (%d): %s",
+                 (int)result, curl_easy_strerror(result));
+        connected = false;
+        return false;
+    }
+    if (meta && (meta->flags & CURLWS_CLOSE))
+    {
+        snprintf(error, errorLen, "Socket.IO server closed the connection");
+        connected = false;
+        return false;
+    }
+    out[received] = 0;
+    return received > 0;
+}

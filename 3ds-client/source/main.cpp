@@ -70,6 +70,46 @@ static bool jsonExtract(const char *json, const char *key, char *outVal, int max
     }
 }
 
+static bool parseSocketEvent(const char *packet, char *event, int eventLen,
+                             char *payload, int payloadLen)
+{
+    if (!packet || strncmp(packet, "42[\"", 4) != 0) return false;
+    const char *eventStart = packet + 4;
+    const char *eventEnd = strchr(eventStart, '"');
+    if (!eventEnd) return false;
+    int eventSize = (int)(eventEnd - eventStart);
+    if (eventSize <= 0 || eventSize >= eventLen) return false;
+    memcpy(event, eventStart, eventSize);
+    event[eventSize] = 0;
+
+    const char *payloadStart = strchr(eventEnd + 1, ',');
+    if (!payloadStart) return false;
+    ++payloadStart;
+    const char *payloadEnd = strrchr(payloadStart, ']');
+    if (!payloadEnd || payloadEnd <= payloadStart) return false;
+    int payloadSize = (int)(payloadEnd - payloadStart);
+    if (payloadSize >= payloadLen) payloadSize = payloadLen - 1;
+    memcpy(payload, payloadStart, payloadSize);
+    payload[payloadSize] = 0;
+    return true;
+}
+
+static bool parseBoard(const char *json, char board[6][6])
+{
+    const char *p = strstr(json, "\"board\":[");
+    if (!p) return false;
+    int count = 0;
+    for (; *p && count < 36; ++p)
+    {
+        if (*p == 'W' || *p == 'B' || *p == '0')
+        {
+            board[count / 6][count % 6] = *p;
+            ++count;
+        }
+    }
+    return count == 36;
+}
+
 // ---------------------------------------------------------------------------
 // swkbd helper
 // ---------------------------------------------------------------------------
@@ -134,18 +174,18 @@ static bool focusPoint(AppState state, LobbyPage page, int focus,
     {
         if (page == LobbyPage::HOME)
         {
-            static const int points[][2] = {{82, 76}, {238, 76}, {82, 130},
-                                             {238, 130}, {160, 200}, {160, 222}};
+            static const int points[][2] = {{82, 97}, {238, 97}, {82, 145},
+                                             {238, 145}, {160, 181}, {160, 222}};
             if (focus >= 0 && focus < 6) { x = points[focus][0]; y = points[focus][1]; return true; }
         }
         else if (page == LobbyPage::PRIVATE_CHOICE)
         {
-            static const int points[][2] = {{82, 76}, {238, 76}, {82, 173}, {160, 222}};
+            static const int points[][2] = {{82, 109}, {238, 109}, {82, 185}, {160, 222}};
             if (focus >= 0 && focus < 4) { x = points[focus][0]; y = points[focus][1]; return true; }
         }
         else if (page == LobbyPage::PRIVATE_JOIN)
         {
-            static const int points[][2] = {{238, 173}, {82, 173}, {160, 222}};
+            static const int points[][2] = {{238, 185}, {82, 185}, {160, 222}};
             if (focus >= 0 && focus < 3) { x = points[focus][0]; y = points[focus][1]; return true; }
         }
         else
@@ -168,6 +208,131 @@ static void goBack(AppState state, LobbyPage &page, char *statusMsg)
             page = LobbyPage::HOME;
         statusMsg[0] = 0;
     }
+}
+
+static void resetGame(GameUiState &game)
+{
+    static const char initialBoard[6][6] = {
+        {'B', '0', 'W', 'B', '0', 'W'},
+        {'0', '0', '0', '0', '0', '0'},
+        {'W', '0', '0', '0', '0', 'B'},
+        {'B', '0', '0', '0', '0', 'W'},
+        {'0', '0', '0', '0', '0', '0'},
+        {'W', '0', 'B', 'W', '0', 'B'}
+    };
+    memcpy(game.board, initialBoard, sizeof(initialBoard));
+    game.player = 'W';
+    game.turn = 'W';
+    game.selectedRow = game.selectedCol = -1;
+    game.targetRow = game.targetCol = -1;
+    game.cursorRow = game.cursorCol = 0;
+    game.pieceSelected = false;
+    game.confirmMove = false;
+    game.statusMsg = "Local game";
+}
+
+static bool hasLegalDestination(const GameUiState &game, int r, int c)
+{
+    static const int dirs[][2] = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+    for (const auto &dir : dirs)
+    {
+        int nr = r + dir[0];
+        int nc = c + dir[1];
+        bool moved = false;
+        while (nr >= 0 && nr < 6 && nc >= 0 && nc < 6 && game.board[nr][nc] == '0')
+        {
+            moved = true;
+            nr += dir[0];
+            nc += dir[1];
+        }
+        if (moved) return true;
+    }
+    return false;
+}
+
+static bool chooseFirstDestination(GameUiState &game)
+{
+    static const int dirs[][2] = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+    for (const auto &dir : dirs)
+    {
+        int nr = game.selectedRow + dir[0];
+        int nc = game.selectedCol + dir[1];
+        int lastR = game.selectedRow;
+        int lastC = game.selectedCol;
+        while (nr >= 0 && nr < 6 && nc >= 0 && nc < 6 && game.board[nr][nc] == '0')
+        {
+            lastR = nr;
+            lastC = nc;
+            nr += dir[0];
+            nc += dir[1];
+        }
+        if (lastR != game.selectedRow || lastC != game.selectedCol)
+        {
+            game.targetRow = lastR;
+            game.targetCol = lastC;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void selectGamePiece(GameUiState &game, int r, int c)
+{
+    if (game.turn != game.player || r < 0 || r >= 6 || c < 0 || c >= 6 || game.board[r][c] != game.player ||
+        !hasLegalDestination(game, r, c)) return;
+    game.selectedRow = r;
+    game.selectedCol = c;
+    game.cursorRow = r;
+    game.cursorCol = c;
+    game.pieceSelected = chooseFirstDestination(game);
+    game.confirmMove = false;
+    game.statusMsg = "Use DPAD to choose a direction";
+}
+
+static void moveGameCursor(GameUiState &game, int direction)
+{
+    if (!game.pieceSelected)
+    {
+        if (direction == 0) game.cursorCol = (game.cursorCol + 5) % 6;
+        if (direction == 1) game.cursorRow = (game.cursorRow + 1) % 6;
+        if (direction == 2) game.cursorCol = (game.cursorCol + 1) % 6;
+        if (direction == 3) game.cursorRow = (game.cursorRow + 5) % 6;
+        return;
+    }
+    static const int dirs[][2] = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+    const int dr = dirs[direction][0];
+    const int dc = dirs[direction][1];
+    int nr = game.selectedRow + dr;
+    int nc = game.selectedCol + dc;
+    int lastR = game.selectedRow;
+    int lastC = game.selectedCol;
+    while (nr >= 0 && nr < 6 && nc >= 0 && nc < 6 && game.board[nr][nc] == '0')
+    {
+        lastR = nr;
+        lastC = nc;
+        nr += dr;
+        nc += dc;
+    }
+    if (lastR != game.selectedRow || lastC != game.selectedCol)
+    {
+        game.targetRow = lastR;
+        game.targetCol = lastC;
+        game.cursorRow = lastR;
+        game.cursorCol = lastC;
+    }
+}
+
+static void applyGameMove(GameUiState &game)
+{
+    game.board[game.targetRow][game.targetCol] = game.player;
+    game.board[game.selectedRow][game.selectedCol] = '0';
+    game.player = game.player == 'W' ? 'B' : 'W';
+    game.turn = game.player;
+    game.selectedRow = game.selectedCol = -1;
+    game.targetRow = game.targetCol = -1;
+    game.pieceSelected = false;
+    game.confirmMove = false;
+    game.statusMsg = "Move complete";
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +400,7 @@ int main()
     char savedAuthCode[AUTHCODE_LEN + 2] = {};
     char username[64]   = {};
     char elo[16]        = "600";
+    int userId = 0;
     char joinCode[32]   = {};
     LobbyPage lobbyPage = LobbyPage::HOME;
     int focusIndex = 0;
@@ -242,6 +408,15 @@ int main()
     bool isRated = true;
     int timeControl = 0;
     int variant = 0;
+    bool gameActive = false;
+    bool onlineGame = false;
+    bool socketAttempted = false;
+    char activeGameId[64] = {};
+    GameUiState game = {};
+    resetGame(game);
+    SocketIoClient socket;
+    char socketError[192] = {};
+    char socketPacket[1024] = {};
 
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -298,8 +473,11 @@ int main()
         if (code == 200)
         {
             char uname[64] = "Player";
+            char idValue[16] = {};
             jsonExtract(resp.data, "username", uname, sizeof(uname));
+            jsonExtract(resp.data, "id", idValue, sizeof(idValue));
             jsonExtract(resp.data, "elo", elo, sizeof(elo));
+            userId = atoi(idValue);
             snprintf(username,  sizeof(username),  "%s", uname);
             snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
             state = AppState::LOGGED_IN;
@@ -363,6 +541,88 @@ main_loop:
 
         circlePosition circle;
         hidCircleRead(&circle);
+
+        if (state == AppState::LOGGED_IN && !socketAttempted)
+        {
+            socketAttempted = true;
+            if (!socket.connect(socketError, sizeof(socketError)))
+            {
+                snprintf(statusMsg, sizeof(statusMsg), "%s", socketError);
+                state = AppState::ERROR_STATE;
+            }
+        }
+
+        if (socket.isConnected())
+        {
+            while (socket.receive(socketPacket, sizeof(socketPacket), socketError, sizeof(socketError)))
+            {
+                if (strcmp(socketPacket, "2") == 0)
+                {
+                    socket.sendRaw("3", socketError, sizeof(socketError));
+                    continue;
+                }
+
+                char eventName[64] = {};
+                char eventPayload[900] = {};
+                if (!parseSocketEvent(socketPacket, eventName, sizeof(eventName),
+                                      eventPayload, sizeof(eventPayload)))
+                    continue;
+
+                if (strcmp(eventName, "match_found") == 0)
+                {
+                    char color[4] = "W";
+                    jsonExtract(eventPayload, "gameId", activeGameId, sizeof(activeGameId));
+                    jsonExtract(eventPayload, "color", color, sizeof(color));
+                    if (!parseBoard(eventPayload, game.board))
+                    {
+                        snprintf(statusMsg, sizeof(statusMsg), "Socket.IO match_found had no valid board");
+                        state = AppState::ERROR_STATE;
+                        gameActive = false;
+                        break;
+                    }
+                    game.player = color[0] == 'B' ? 'B' : 'W';
+                    game.turn = 'W';
+                    game.selectedRow = game.selectedCol = -1;
+                    game.targetRow = game.targetCol = -1;
+                    game.cursorRow = game.cursorCol = 0;
+                    game.pieceSelected = false;
+                    game.confirmMove = false;
+                    game.statusMsg = "Choose a piece to move";
+                    onlineGame = true;
+                    gameActive = true;
+                }
+                else if (strcmp(eventName, "game_update") == 0 && onlineGame)
+                {
+                    char turn[4] = "W";
+                    if (parseBoard(eventPayload, game.board))
+                    {
+                        jsonExtract(eventPayload, "turn", turn, sizeof(turn));
+                        game.turn = turn[0] == 'B' ? 'B' : 'W';
+                        game.pieceSelected = false;
+                        game.confirmMove = false;
+                        game.selectedRow = game.selectedCol = -1;
+                        game.targetRow = game.targetCol = -1;
+                        game.statusMsg = game.turn == game.player
+                                       ? "Choose a piece to move" : "Waiting for opponent";
+                    }
+                }
+                else if (strcmp(eventName, "error") == 0)
+                {
+                    char message[160] = {};
+                    jsonExtract(eventPayload, "message", message, sizeof(message));
+                    snprintf(statusMsg, sizeof(statusMsg), "%s", message[0] ? message : eventPayload);
+                    state = AppState::ERROR_STATE;
+                    gameActive = false;
+                }
+            }
+            if (!socket.isConnected() && socketError[0])
+            {
+                snprintf(statusMsg, sizeof(statusMsg), "%s", socketError);
+                state = AppState::ERROR_STATE;
+                gameActive = false;
+            }
+        }
+
         int navDirection = 0;
         if (kDown & (KEY_DUP | KEY_DLEFT)) navDirection = -1;
         else if (kDown & (KEY_DDOWN | KEY_DRIGHT)) navDirection = 1;
@@ -404,6 +664,79 @@ main_loop:
         pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
 
         if (kDown & KEY_START) break;
+
+        if (gameActive)
+        {
+            if (kDown & KEY_B)
+            {
+                if (game.confirmMove)
+                {
+                    game.confirmMove = false;
+                    game.statusMsg = "Choose a direction";
+                }
+                else if (game.pieceSelected)
+                {
+                    game.pieceSelected = false;
+                    game.selectedRow = game.selectedCol = -1;
+                    game.targetRow = game.targetCol = -1;
+                    game.statusMsg = "Choose a piece to move";
+                }
+                else
+                {
+                    gameActive = false;
+                    statusMsg[0] = 0;
+                }
+            }
+
+            int gameDirection = -1;
+            if (kDown & KEY_DRIGHT) gameDirection = 0;
+            else if (kDown & KEY_DDOWN) gameDirection = 1;
+            else if (kDown & KEY_DLEFT) gameDirection = 2;
+            else if (kDown & KEY_DUP) gameDirection = 3;
+            if (gameDirection >= 0 && !game.confirmMove)
+                moveGameCursor(game, gameDirection);
+
+            if (touched && touch.px >= 5 && touch.px < 233 && touch.py >= 5 && touch.py < 233)
+            {
+                int c = (touch.px - 5) / 38;
+                int r = (touch.py - 5) / 38;
+                if (!game.pieceSelected) selectGamePiece(game, r, c);
+                else if (r == game.targetRow && c == game.targetCol) game.confirmMove = true;
+                else if (game.board[r][c] == game.player) selectGamePiece(game, r, c);
+            }
+            if ((kDown & KEY_A) && !game.confirmMove)
+            {
+                if (!game.pieceSelected) selectGamePiece(game, game.cursorRow, game.cursorCol);
+                else game.confirmMove = true;
+            }
+            else if ((kDown & KEY_A) && game.confirmMove)
+            {
+                if (onlineGame)
+                {
+                    char moveJson[192];
+                    char sendError[192] = {};
+                    snprintf(moveJson, sizeof(moveJson),
+                             "{\"gameId\":\"%s\",\"userId\":%d,\"from\":{\"r\":%d,\"c\":%d},\"to\":{\"r\":%d,\"c\":%d}}",
+                             activeGameId, userId, game.selectedRow, game.selectedCol,
+                             game.targetRow, game.targetCol);
+                    if (!socket.sendEvent("make_move", moveJson, sendError, sizeof(sendError)))
+                    {
+                        snprintf(statusMsg, sizeof(statusMsg), "%s", sendError);
+                        state = AppState::ERROR_STATE;
+                        gameActive = false;
+                    }
+                    else
+                    {
+                        game.confirmMove = false;
+                        game.pieceSelected = false;
+                        game.statusMsg = "Move sent. Waiting for server";
+                    }
+                }
+                else
+                    applyGameMove(game);
+            }
+            goto render;
+        }
 
         // ----- Button actions -----
         if (touched)
@@ -465,7 +798,11 @@ main_loop:
                 {
                     if (buttonHit(publicMatch, touch.px, touch.py)) lobbyPage = LobbyPage::PUBLIC_SETTINGS;
                     else if (buttonHit(privateRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CHOICE;
-                    else if (buttonHit(localPlay, touch.px, touch.py)) snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Local play menu", username, elo);
+                    else if (buttonHit(localPlay, touch.px, touch.py))
+                    {
+                        resetGame(game);
+                        gameActive = true;
+                    }
                     else if (buttonHit(spectate, touch.px, touch.py)) snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Spectate menu", username, elo);
                 }
                 else if (buttonHit(back, touch.px, touch.py))
@@ -506,7 +843,29 @@ main_loop:
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py))
                 {
-                    snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Settings saved", username, elo);
+                    if (lobbyPage == LobbyPage::PUBLIC_SETTINGS && socket.isConnected())
+                    {
+                        static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
+                        char queueJson[160];
+                        char sendError[192] = {};
+                        snprintf(queueJson, sizeof(queueJson),
+                                 "{\"userId\":%d,\"elo\":%d,\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
+                                 userId, atoi(elo), queueTimes[timeControl],
+                                 variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
+                                 variant == 2 ? "random_setup" : "schizophrenic",
+                                 isRated ? "true" : "false");
+                        if (socket.sendEvent("join_queue", queueJson, sendError, sizeof(sendError)))
+                        {
+                            snprintf(statusMsg, sizeof(statusMsg), "Waiting for an opponent...");
+                        }
+                        else
+                        {
+                            snprintf(statusMsg, sizeof(statusMsg), "%s", sendError);
+                            state = AppState::ERROR_STATE;
+                        }
+                    }
+                    else
+                        snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Settings saved", username, elo);
                 }
                 if (lobbyPage != pageBefore)
                     focusIndex = 0;
@@ -532,8 +891,11 @@ main_loop:
                 if (http == 200 && resp.data)
                 {
                     char guestName[64] = "Guest";
+                    char idValue[16] = {};
                     jsonExtract(resp.data, "username", guestName, sizeof(guestName));
+                    jsonExtract(resp.data, "id", idValue, sizeof(idValue));
                     jsonExtract(resp.data, "elo", elo, sizeof(elo));
+                    userId = atoi(idValue);
                     snprintf(username, sizeof(username), "%s", guestName);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", guestName, elo);
                     state = AppState::LOGGED_IN;
@@ -579,9 +941,12 @@ main_loop:
                 {
                     char uname[64] = "Player";
                     char ac[AUTHCODE_LEN + 2] = {};
+                    char idValue[16] = {};
                     jsonExtract(resp.data, "username", uname, sizeof(uname));
                     jsonExtract(resp.data, "authCode", ac, sizeof(ac));
+                    jsonExtract(resp.data, "id", idValue, sizeof(idValue));
                     jsonExtract(resp.data, "elo", elo, sizeof(elo));
+                    userId = atoi(idValue);
                     snprintf(username,  sizeof(username),  "%s", uname);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
                     if (ac[0]) saveAuthCode(ac);
@@ -624,6 +989,7 @@ main_loop:
                     {
                         char ac[AUTHCODE_LEN + 2] = {};
                         char uname[64] = "Player";
+                        char idValue[16] = {};
                         jsonExtract(resp.data, "authCode", ac, sizeof(ac));
                         const char *userObj = strstr(resp.data, "\"user\":");
                         if (userObj)
@@ -631,8 +997,10 @@ main_loop:
                             jsonExtract(userObj, "username", uname, sizeof(uname));
                             jsonExtract(userObj, "elo", elo, sizeof(elo));
                         }
+                        jsonExtract(resp.data, "id", idValue, sizeof(idValue));
 
                         snprintf(username, sizeof(username), "%s", uname);
+                        userId = atoi(idValue);
                         if (ac[0]) saveAuthCode(ac);
 
                         state = AppState::LOGGED_IN;
@@ -691,9 +1059,17 @@ main_loop:
             uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
             uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
 
-            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg);
-            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, pressedSignIn, pressedGuest, pressedSignOut,
-                             pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+            if (gameActive)
+            {
+                drawGameTopScreen(topFb, game);
+                drawGameBottomScreen(botFb, game);
+            }
+            else
+            {
+                drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg);
+                drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, pressedSignIn, pressedGuest, pressedSignOut,
+                                 pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+            }
 
             gfxFlushBuffers();
             gfxSwapBuffers();

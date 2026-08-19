@@ -10,6 +10,7 @@
 #pragma once
 
 #include <curl/curl.h>
+#include <curl/websockets.h>
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
@@ -49,3 +50,22 @@ long httpPost(const char *path,
               CurlBuf    &outBody,
               CURLcode   &outCurlCode,
               char        outCurlError[CURL_ERROR_SIZE]);
+
+class SocketIoClient
+{
+public:
+    SocketIoClient();
+    ~SocketIoClient();
+
+    bool connect(char *error, int errorLen);
+    void close();
+    bool isConnected() const;
+    bool sendEvent(const char *event, const char *jsonData,
+                   char *error, int errorLen);
+    bool sendRaw(const char *packet, char *error, int errorLen);
+    bool receive(char *out, int outLen, char *error, int errorLen);
+
+private:
+    CURL *curl;
+    bool connected;
+};

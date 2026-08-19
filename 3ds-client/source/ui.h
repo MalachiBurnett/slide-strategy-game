@@ -38,6 +38,22 @@ struct Button
     Color       borderColor;
 };
 
+struct GameUiState
+{
+    char board[6][6];
+    char player;
+    char turn;
+    int selectedRow;
+    int selectedCol;
+    int targetRow;
+    int targetCol;
+    int cursorRow;
+    int cursorCol;
+    bool pieceSelected;
+    bool confirmMove;
+    const char *statusMsg;
+};
+
 bool buttonHit (const Button &btn, int tx, int ty);
 void drawButton(uint8_t *fb, const Button &btn, bool pressed, int textScale = 1,
                 bool focused = false);
@@ -62,3 +78,6 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,
                       const Button &btnQuit);
+
+void drawGameTopScreen(uint8_t *fb, const GameUiState &game);
+void drawGameBottomScreen(uint8_t *fb, const GameUiState &game);
