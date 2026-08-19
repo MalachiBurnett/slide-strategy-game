@@ -3,6 +3,7 @@
  */
 #include "net.h"
 #include <3ds.h>
+#include <ctime>
 
 static constexpr int DNS_RETRY_ATTEMPTS = 3;
 static constexpr u64 DNS_RETRY_DELAY_TICKS = CPU_TICKS_PER_MSEC * 500;
@@ -154,7 +155,7 @@ long httpPost(const char *path,
     return code;
 }
 
-SocketIoClient::SocketIoClient() : curl(nullptr), connected(false) {}
+SocketIoClient::SocketIoClient() : curl(nullptr), connected(false), receiveLength(0) {}
 
 SocketIoClient::~SocketIoClient()
 {
@@ -174,8 +175,8 @@ bool SocketIoClient::connect(char *error, int errorLen)
     }
 
     curl_easy_setopt(curl, CURLOPT_URL,
-                     "wss://slide.wiizardsoftware.uk/socket.io/?EIO=4&transport=websocket");
-    curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L);
+                     "https://slide.wiizardsoftware.uk/socket.io/?EIO=4&transport=websocket");
+    curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 1L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 8L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
@@ -190,15 +191,71 @@ bool SocketIoClient::connect(char *error, int errorLen)
         return false;
     }
 
-    connected = true;
+    const char upgradeRequest[] =
+        "GET /socket.io/?EIO=4&transport=websocket HTTP/1.1\r\n"
+        "Host: slide.wiizardsoftware.uk\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n";
     size_t sent = 0;
-    const char namespaceConnect[] = "40";
-    result = curl_ws_send(curl, namespaceConnect, sizeof(namespaceConnect) - 1,
-                          &sent, 0, CURLWS_TEXT);
-    if (result != CURLE_OK)
+    result = curl_easy_send(curl, upgradeRequest, sizeof(upgradeRequest) - 1, &sent);
+    if (result != CURLE_OK || sent != sizeof(upgradeRequest) - 1)
     {
-        snprintf(error, errorLen, "Socket.IO handshake failed (%d): %s",
+        snprintf(error, errorLen, "Socket.IO HTTP upgrade send failed (%d): %s",
                  (int)result, curl_easy_strerror(result));
+        close();
+        return false;
+    }
+
+    char response[1024] = {};
+    size_t responseLength = 0;
+    u64 deadline = svcGetSystemTick() + CPU_TICKS_PER_MSEC * 8000;
+    while (responseLength + 1 < sizeof(response) && svcGetSystemTick() < deadline)
+    {
+        size_t received = 0;
+        result = curl_easy_recv(curl, response + responseLength,
+                                sizeof(response) - responseLength - 1, &received);
+        if (result == CURLE_AGAIN)
+        {
+            svcSleepThread(CPU_TICKS_PER_MSEC * 10);
+            continue;
+        }
+        if (result != CURLE_OK)
+        {
+            snprintf(error, errorLen, "Socket.IO HTTP upgrade receive failed (%d): %s",
+                     (int)result, curl_easy_strerror(result));
+            close();
+            return false;
+        }
+        responseLength += received;
+        response[responseLength] = 0;
+        if (strstr(response, "\r\n\r\n")) break;
+    }
+    if (strncmp(response, "HTTP/1.1 101", 12) != 0)
+    {
+        snprintf(error, errorLen, "Socket.IO upgrade rejected: %.180s", response);
+        close();
+        return false;
+    }
+
+    const char *headerEnd = strstr(response, "\r\n\r\n");
+    const size_t headerBytes = (size_t)(headerEnd - response) + 4;
+    const size_t leftoverBytes = responseLength - headerBytes;
+    if (leftoverBytes > sizeof(receiveBuffer))
+    {
+        snprintf(error, errorLen, "Socket.IO handshake frame buffer overflow");
+        close();
+        return false;
+    }
+    if (leftoverBytes > 0)
+        memcpy(receiveBuffer, response + headerBytes, leftoverBytes);
+    receiveLength = leftoverBytes;
+
+    connected = true;
+    const char namespaceConnect[] = "40";
+    if (!sendRaw(namespaceConnect, error, errorLen))
+    {
         close();
         return false;
     }
@@ -212,14 +269,16 @@ void SocketIoClient::close()
         if (connected)
         {
             size_t sent = 0;
-            const char closeFrame[] = "41";
-            curl_ws_send(curl, closeFrame, sizeof(closeFrame) - 1,
-                         &sent, 0, CURLWS_TEXT);
+            const unsigned char closeFrame[] = {
+                0x88, 0x80, 0x53, 0x6c, 0x69, 0x64
+            };
+            curl_easy_send(curl, closeFrame, sizeof(closeFrame), &sent);
         }
         curl_easy_cleanup(curl);
     }
     curl = nullptr;
     connected = false;
+    receiveLength = 0;
 }
 
 bool SocketIoClient::isConnected() const
@@ -236,7 +295,7 @@ bool SocketIoClient::sendEvent(const char *event, const char *jsonData,
         return false;
     }
 
-    char packet[512];
+    char packet[1024];
     snprintf(packet, sizeof(packet), "42[\"%s\",%s]", event,
              jsonData && jsonData[0] ? jsonData : "null");
     return sendRaw(packet, error, errorLen);
@@ -249,9 +308,35 @@ bool SocketIoClient::sendRaw(const char *packet, char *error, int errorLen)
         snprintf(error, errorLen, "Socket.IO is not connected");
         return false;
     }
+    const size_t payloadLength = strlen(packet);
+    if (payloadLength > 1024)
+    {
+        snprintf(error, errorLen, "Socket.IO packet is too large");
+        return false;
+    }
+    unsigned char frame[2 + 2 + 4 + 1024];
+    frame[0] = 0x81;
+    size_t headerLength = 2;
+    if (payloadLength <= 125)
+    {
+        frame[1] = 0x80 | (unsigned char)payloadLength;
+    }
+    else
+    {
+        frame[1] = 0x80 | 126;
+        frame[2] = (unsigned char)(payloadLength >> 8);
+        frame[3] = (unsigned char)payloadLength;
+        headerLength = 4;
+    }
+    unsigned char mask[4] = {0x53, 0x6c, 0x69, 0x64};
+    memcpy(frame + headerLength, mask, sizeof(mask));
+    for (size_t i = 0; i < payloadLength; ++i)
+        frame[headerLength + 4 + i] = (unsigned char)packet[i] ^ mask[i % 4];
+
     size_t sent = 0;
-    CURLcode result = curl_ws_send(curl, packet, strlen(packet), &sent, 0, CURLWS_TEXT);
-    if (result != CURLE_OK || sent != strlen(packet))
+    const size_t frameLength = headerLength + 4 + payloadLength;
+    CURLcode result = curl_easy_send(curl, frame, frameLength, &sent);
+    if (result != CURLE_OK || sent != frameLength)
     {
         snprintf(error, errorLen, "Socket.IO send failed (%d): %s",
                  (int)result, curl_easy_strerror(result));
@@ -266,8 +351,8 @@ bool SocketIoClient::receive(char *out, int outLen, char *error, int errorLen)
     if (!out || outLen < 2) return false;
 
     size_t received = 0;
-    const struct curl_ws_frame *meta = nullptr;
-    CURLcode result = curl_ws_recv(curl, out, outLen - 1, &received, &meta);
+    CURLcode result = curl_easy_recv(curl, receiveBuffer + receiveLength,
+                                     sizeof(receiveBuffer) - receiveLength, &received);
     if (result == CURLE_AGAIN) return false;
     if (result != CURLE_OK)
     {
@@ -276,12 +361,55 @@ bool SocketIoClient::receive(char *out, int outLen, char *error, int errorLen)
         connected = false;
         return false;
     }
-    if (meta && (meta->flags & CURLWS_CLOSE))
+    receiveLength += received;
+    if (receiveLength < 2) return false;
+
+    const unsigned char first = receiveBuffer[0];
+    const unsigned char second = receiveBuffer[1];
+    const unsigned int opcode = first & 0x0f;
+    size_t headerLength = 2;
+    size_t payloadLength = second & 0x7f;
+    if (payloadLength == 126)
+    {
+        if (receiveLength < 4) return false;
+        payloadLength = ((size_t)receiveBuffer[2] << 8) | receiveBuffer[3];
+        headerLength = 4;
+    }
+    else if (payloadLength == 127)
+    {
+        snprintf(error, errorLen, "Socket.IO frame is too large");
+        connected = false;
+        return false;
+    }
+    if (second & 0x80) headerLength += 4;
+    if (receiveLength < headerLength + payloadLength) return false;
+    const size_t framePayloadLength = payloadLength;
+
+    if (opcode == 0x8)
     {
         snprintf(error, errorLen, "Socket.IO server closed the connection");
         connected = false;
         return false;
     }
-    out[received] = 0;
-    return received > 0;
+    if (opcode == 0x9)
+    {
+        unsigned char pong[2 + 125];
+        pong[0] = 0x8a;
+        pong[1] = (unsigned char)payloadLength;
+        memcpy(pong + 2, receiveBuffer + headerLength, payloadLength);
+        size_t pongSent = 0;
+        curl_easy_send(curl, pong, payloadLength + 2, &pongSent);
+    }
+    else if (opcode == 0x1)
+    {
+        size_t outputLength = payloadLength;
+        if ((int)outputLength >= outLen) outputLength = outLen - 1;
+        memcpy(out, receiveBuffer + headerLength, outputLength);
+        out[outputLength] = 0;
+    }
+    size_t frameLength = headerLength + framePayloadLength;
+    if (frameLength < receiveLength)
+        memmove(receiveBuffer, receiveBuffer + frameLength, receiveLength - frameLength);
+    receiveLength -= frameLength;
+    return opcode == 0x1 && framePayloadLength > 0;
 }

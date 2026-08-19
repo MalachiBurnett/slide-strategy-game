@@ -24,6 +24,8 @@ enum class LobbyPage
     PRIVATE_CHOICE,
     PRIVATE_CREATE,
     PRIVATE_JOIN,
+    LOCAL_SETTINGS,
+    QUEUE,
 };
 
 // ---------------------------------------------------------------------------
@@ -75,7 +77,7 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       bool isRated, int timeControl, int variant,
                       int focusIndex, bool focusVisible,
                       bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
-                      bool pressedQuit, const Button &btnSignIn,
+                      bool pressedOffline, bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,
                       const Button &btnQuit);
 

@@ -1,5 +1,5 @@
 /*
- * net.h — HTTP helper functions (GET / POST) via libcurl over 3DS SOC.
+ * net.h — HTTP helpers plus Socket.IO transport via libcurl over 3DS SOC.
  *
  * Key fixes vs the original monolithic main.cpp:
  *   • BASE_URL uses HTTPS (was HTTP — caused redirect/connection failure).
@@ -10,7 +10,6 @@
 #pragma once
 
 #include <curl/curl.h>
-#include <curl/websockets.h>
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
@@ -68,4 +67,6 @@ public:
 private:
     CURL *curl;
     bool connected;
+    unsigned char receiveBuffer[8192];
+    size_t receiveLength;
 };

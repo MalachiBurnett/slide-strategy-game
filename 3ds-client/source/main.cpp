@@ -148,12 +148,14 @@ static void buildNetError(char *out, int outLen,
 
 static int focusCount(AppState state, LobbyPage page)
 {
-    if (state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) return 3;
+    if (state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) return 4;
     if (state == AppState::INIT) return 1;
     if (state != AppState::LOGGED_IN) return 0;
+    if (page == LobbyPage::QUEUE) return 1;
     if (page == LobbyPage::HOME) return 6;
     if (page == LobbyPage::PRIVATE_CHOICE) return 4;
     if (page == LobbyPage::PRIVATE_JOIN) return 3;
+    if (page == LobbyPage::LOCAL_SETTINGS) return 3;
     return 6;
 }
 
@@ -164,7 +166,8 @@ static bool focusPoint(AppState state, LobbyPage page, int focus,
     {
         if (focus == 0) { x = BOT_W / 2; y = 125; return true; }
         if (focus == 1) { x = BOT_W / 2; y = 165; return true; }
-        if (focus == 2) { x = BOT_W / 2; y = 222; return true; }
+        if (focus == 2) { x = BOT_W / 2; y = 198; return true; }
+        if (focus == 3) { x = BOT_W / 2; y = 222; return true; }
     }
     else if (state == AppState::INIT)
     {
@@ -188,6 +191,15 @@ static bool focusPoint(AppState state, LobbyPage page, int focus,
             static const int points[][2] = {{238, 185}, {82, 185}, {160, 222}};
             if (focus >= 0 && focus < 3) { x = points[focus][0]; y = points[focus][1]; return true; }
         }
+        else if (page == LobbyPage::LOCAL_SETTINGS)
+        {
+            static const int points[][2] = {{160, 54}, {238, 185}, {82, 185}};
+            if (focus >= 0 && focus < 3) { x = points[focus][0]; y = points[focus][1]; return true; }
+        }
+        else if (page == LobbyPage::QUEUE)
+        {
+            x = BOT_W / 2; y = 175; return focus == 0;
+        }
         else
         {
             static const int points[][2] = {{160, 38}, {160, 62}, {160, 86},
@@ -210,7 +222,7 @@ static void goBack(AppState state, LobbyPage &page, char *statusMsg)
     }
 }
 
-static void resetGame(GameUiState &game)
+static void resetGame(GameUiState &game, int selectedVariant = 0)
 {
     static const char initialBoard[6][6] = {
         {'B', '0', 'W', 'B', '0', 'W'},
@@ -221,6 +233,28 @@ static void resetGame(GameUiState &game)
         {'W', '0', 'B', 'W', '0', 'B'}
     };
     memcpy(game.board, initialBoard, sizeof(initialBoard));
+    if (selectedVariant == 2)
+    {
+        memset(game.board, '0', sizeof(game.board));
+        int placedWhite = 0;
+        int placedBlack = 0;
+        while (placedWhite < 6 || placedBlack < 6)
+        {
+            int row = rand() % 6;
+            int col = rand() % 6;
+            if (game.board[row][col] != '0') continue;
+            if (placedWhite < 6)
+            {
+                game.board[row][col] = 'W';
+                ++placedWhite;
+            }
+            else
+            {
+                game.board[row][col] = 'B';
+                ++placedBlack;
+            }
+        }
+    }
     game.player = 'W';
     game.turn = 'W';
     game.selectedRow = game.selectedCol = -1;
@@ -299,7 +333,7 @@ static void moveGameCursor(GameUiState &game, int direction)
         if (direction == 3) game.cursorRow = (game.cursorRow + 5) % 6;
         return;
     }
-    static const int dirs[][2] = {{0, 1}, {1, 0}, {0, -1}, {-1, 0}};
+    static const int dirs[][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
     const int dr = dirs[direction][0];
     const int dc = dirs[direction][1];
     int nr = game.selectedRow + dr;
@@ -410,13 +444,18 @@ int main()
     int variant = 0;
     bool gameActive = false;
     bool onlineGame = false;
+    bool queueing = false;
     bool socketAttempted = false;
+    u64 nextSocketRetryTick = 0;
+    char queuedTimeControl[16] = {};
+    char queuedVariant[24] = {};
+    bool queuedRated = false;
     char activeGameId[64] = {};
     GameUiState game = {};
     resetGame(game);
     SocketIoClient socket;
     char socketError[192] = {};
-    char socketPacket[1024] = {};
+    char socketPacket[4096] = {};
 
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -424,6 +463,7 @@ int main()
 
     bool pressedSignIn = false;
     bool pressedGuest = false;
+    bool pressedOffline = false;
     bool pressedSignOut = false;
     bool pressedQuit   = false;
     bool returnToErrorAfterKeyboardCancel = false;
@@ -446,14 +486,14 @@ int main()
                      "SOC init failed (0x%08lX) - check WiFi", socResult);
             state = AppState::ERROR_STATE;
             drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, statusMsg);
-            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
             gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
             // Skip network steps; fall straight through to the main loop
             goto main_loop;
         }
 
         drawTopScreen   (topFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, "Checking saved login...");
-        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
 
@@ -542,13 +582,39 @@ main_loop:
         circlePosition circle;
         hidCircleRead(&circle);
 
-        if (state == AppState::LOGGED_IN && !socketAttempted)
+        if (state == AppState::LOGGED_IN && !socketAttempted &&
+            (!queueing || svcGetSystemTick() >= nextSocketRetryTick))
         {
             socketAttempted = true;
             if (!socket.connect(socketError, sizeof(socketError)))
             {
-                snprintf(statusMsg, sizeof(statusMsg), "%s", socketError);
-                state = AppState::ERROR_STATE;
+                if (queueing)
+                {
+                    snprintf(statusMsg, sizeof(statusMsg), "Reconnecting to matchmaking...");
+                    socketAttempted = false;
+                    nextSocketRetryTick = svcGetSystemTick() + CPU_TICKS_PER_MSEC * 2000;
+                }
+                else
+                {
+                    snprintf(statusMsg, sizeof(statusMsg), "%s", socketError);
+                    state = AppState::ERROR_STATE;
+                }
+            }
+            else if (queueing)
+            {
+                char queueJson[192];
+                char queueError[192] = {};
+                snprintf(queueJson, sizeof(queueJson),
+                         "{\"userId\":%d,\"elo\":%d,\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
+                         userId, atoi(elo), queuedTimeControl, queuedVariant,
+                         queuedRated ? "true" : "false");
+                if (!socket.sendEvent("join_queue", queueJson, queueError, sizeof(queueError)))
+                {
+                    snprintf(statusMsg, sizeof(statusMsg), "Queue reconnect failed: %s", queueError);
+                    socket.close();
+                    socketAttempted = false;
+                    nextSocketRetryTick = svcGetSystemTick() + CPU_TICKS_PER_MSEC * 2000;
+                }
             }
         }
 
@@ -563,16 +629,28 @@ main_loop:
                 }
 
                 char eventName[64] = {};
-                char eventPayload[900] = {};
+                char eventPayload[3800] = {};
                 if (!parseSocketEvent(socketPacket, eventName, sizeof(eventName),
                                       eventPayload, sizeof(eventPayload)))
                     continue;
 
                 if (strcmp(eventName, "match_found") == 0)
                 {
+                    if (!queueing)
+                        continue;
                     char color[4] = "W";
                     jsonExtract(eventPayload, "gameId", activeGameId, sizeof(activeGameId));
                     jsonExtract(eventPayload, "color", color, sizeof(color));
+                    char joinError[192] = {};
+                    char joinPayload[80];
+                    snprintf(joinPayload, sizeof(joinPayload), "\"%s\"", activeGameId);
+                    if (!socket.sendEvent("join_game", joinPayload, joinError, sizeof(joinError)))
+                    {
+                        snprintf(statusMsg, sizeof(statusMsg), "Could not join game room: %s", joinError);
+                        state = AppState::ERROR_STATE;
+                        gameActive = false;
+                        break;
+                    }
                     if (!parseBoard(eventPayload, game.board))
                     {
                         snprintf(statusMsg, sizeof(statusMsg), "Socket.IO match_found had no valid board");
@@ -589,6 +667,7 @@ main_loop:
                     game.confirmMove = false;
                     game.statusMsg = "Choose a piece to move";
                     onlineGame = true;
+                    queueing = false;
                     gameActive = true;
                 }
                 else if (strcmp(eventName, "game_update") == 0 && onlineGame)
@@ -604,6 +683,11 @@ main_loop:
                         game.targetRow = game.targetCol = -1;
                         game.statusMsg = game.turn == game.player
                                        ? "Choose a piece to move" : "Waiting for opponent";
+                        if (strstr(eventPayload, "\"status\":\"finished\""))
+                        {
+                            game.statusMsg = "Game ended";
+                            onlineGame = false;
+                        }
                     }
                 }
                 else if (strcmp(eventName, "error") == 0)
@@ -617,9 +701,22 @@ main_loop:
             }
             if (!socket.isConnected() && socketError[0])
             {
-                snprintf(statusMsg, sizeof(statusMsg), "%s", socketError);
-                state = AppState::ERROR_STATE;
-                gameActive = false;
+                if (queueing)
+                {
+                    snprintf(statusMsg, sizeof(statusMsg), "Matchmaking connection lost; reconnecting...");
+                    socketAttempted = false;
+                    nextSocketRetryTick = svcGetSystemTick() + CPU_TICKS_PER_MSEC * 2000;
+                }
+                else if (gameActive && !onlineGame)
+                {
+                    socketError[0] = 0;
+                }
+                else
+                {
+                    snprintf(statusMsg, sizeof(statusMsg), "%s", socketError);
+                    state = AppState::ERROR_STATE;
+                    gameActive = false;
+                }
             }
         }
 
@@ -660,6 +757,8 @@ main_loop:
 
         pressedSignIn = touchHeld && buttonHit(BTN_SIGNIN, touch.px, touch.py);
         pressedGuest = touchHeld && buttonHit(BTN_GUEST, touch.px, touch.py);
+        static const Button BTN_OFFLINE = {16, 188, BOT_W - 32, 20, "Offline local play", C_BG_DARK, C_TEXT, C_ACCENT};
+        pressedOffline = touchHeld && buttonHit(BTN_OFFLINE, touch.px, touch.py);
         pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
         pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
 
@@ -689,10 +788,14 @@ main_loop:
             }
 
             int gameDirection = -1;
-            if (kDown & KEY_DRIGHT) gameDirection = 0;
+            if (kDown & KEY_DLEFT) gameDirection = 0;
             else if (kDown & KEY_DDOWN) gameDirection = 1;
-            else if (kDown & KEY_DLEFT) gameDirection = 2;
+            else if (kDown & KEY_DRIGHT) gameDirection = 2;
             else if (kDown & KEY_DUP) gameDirection = 3;
+            else if (circle.dx < -120) gameDirection = 0;
+            else if (circle.dy < -120) gameDirection = 1;
+            else if (circle.dx > 120) gameDirection = 2;
+            else if (circle.dy > 120) gameDirection = 3;
             if (gameDirection >= 0 && !game.confirmMove)
                 moveGameCursor(game, gameDirection);
 
@@ -784,14 +887,16 @@ main_loop:
             }
             else if (state == AppState::LOGGED_IN)
             {
-                static const Button publicMatch = {8, 52, 148, 48, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button privateRoom = {164, 52, 148, 48, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button createRoom = {8, 52, 148, 48, "Create room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button joinRoom = {164, 52, 148, 48, "Join room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button localPlay = {8, 106, 148, 48, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
-                static const Button spectate = {164, 106, 148, 48, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button back = {8, 158, 148, 30, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button continueButton = {164, 158, 148, 30, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button publicMatch = {8, 76, 148, 42, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button privateRoom = {164, 76, 148, 42, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button createRoom = {8, 88, 148, 42, "Create room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button joinRoom = {164, 88, 148, 42, "Join room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button localPlay = {8, 124, 148, 42, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
+                static const Button spectate = {164, 124, 148, 42, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button back = {8, 172, 148, 26, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button continueButton = {164, 172, 148, 26, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+                static const Button localVariant = {8, 44, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button cancelQueue = {64, 160, 192, 30, "Cancel queue", C_BG_DARK, C_TEXT, C_ACCENT};
 
                 const LobbyPage pageBefore = lobbyPage;
                 if (lobbyPage == LobbyPage::HOME)
@@ -800,8 +905,8 @@ main_loop:
                     else if (buttonHit(privateRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CHOICE;
                     else if (buttonHit(localPlay, touch.px, touch.py))
                     {
-                        resetGame(game);
-                        gameActive = true;
+                        lobbyPage = LobbyPage::LOCAL_SETTINGS;
+                        focusIndex = 0;
                     }
                     else if (buttonHit(spectate, touch.px, touch.py)) snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Spectate menu", username, elo);
                 }
@@ -818,7 +923,27 @@ main_loop:
                     if (buttonHit(createRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CREATE;
                     else if (buttonHit(joinRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_JOIN;
                 }
-                else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS || lobbyPage == LobbyPage::PRIVATE_CREATE)
+                else if (lobbyPage == LobbyPage::QUEUE && buttonHit(cancelQueue, touch.px, touch.py))
+                {
+                    char leaveJson[48];
+                    snprintf(leaveJson, sizeof(leaveJson), "{\"userId\":%d}", userId);
+                    char leaveError[192] = {};
+                    socket.sendEvent("leave_queue", leaveJson, leaveError, sizeof(leaveError));
+                    queueing = false;
+                    lobbyPage = LobbyPage::HOME;
+                    statusMsg[0] = 0;
+                    focusIndex = 0;
+                }
+                else if (lobbyPage == LobbyPage::LOCAL_SETTINGS)
+                {
+                    if (buttonHit(localVariant, touch.px, touch.py))
+                    {
+                        variant = (variant + 1) % 4;
+                        snprintf(statusMsg, sizeof(statusMsg), "Local variant changed");
+                    }
+                }
+                else if ((lobbyPage == LobbyPage::PUBLIC_SETTINGS || lobbyPage == LobbyPage::PRIVATE_CREATE) &&
+                         !buttonHit(continueButton, touch.px, touch.py))
                 {
                     if (buttonHit(BTN_MATCH_SETTING, touch.px, touch.py))
                     {
@@ -843,7 +968,13 @@ main_loop:
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py))
                 {
-                    if (lobbyPage == LobbyPage::PUBLIC_SETTINGS && socket.isConnected())
+                    if (lobbyPage == LobbyPage::LOCAL_SETTINGS)
+                    {
+                        resetGame(game, variant);
+                        onlineGame = false;
+                        gameActive = true;
+                    }
+                    else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS && socket.isConnected())
                     {
                         static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
                         char queueJson[160];
@@ -856,6 +987,15 @@ main_loop:
                                  isRated ? "true" : "false");
                         if (socket.sendEvent("join_queue", queueJson, sendError, sizeof(sendError)))
                         {
+                            static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
+                            snprintf(queuedTimeControl, sizeof(queuedTimeControl), "%s", queueTimes[timeControl]);
+                            snprintf(queuedVariant, sizeof(queuedVariant), "%s",
+                                     variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
+                                     variant == 2 ? "random_setup" : "schizophrenic");
+                            queuedRated = isRated;
+                            queueing = true;
+                            lobbyPage = LobbyPage::QUEUE;
+                            focusIndex = 0;
                             snprintf(statusMsg, sizeof(statusMsg), "Waiting for an opponent...");
                         }
                         else
@@ -876,6 +1016,19 @@ main_loop:
             {
                 returnToErrorAfterKeyboardCancel = state == AppState::ERROR_STATE;
                 state = AppState::KEYBOARD_LOGIN;
+            }
+
+            else if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
+                buttonHit(BTN_OFFLINE, touch.px, touch.py))
+            {
+                socketAttempted = true;
+                userId = 0;
+                snprintf(username, sizeof(username), "Offline");
+                snprintf(elo, sizeof(elo), "-");
+                state = AppState::LOGGED_IN;
+                lobbyPage = LobbyPage::LOCAL_SETTINGS;
+                focusIndex = 0;
+                statusMsg[0] = 0;
             }
 
             else if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
@@ -1068,7 +1221,7 @@ main_loop:
             {
                 drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg);
                 drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, pressedSignIn, pressedGuest, pressedSignOut,
-                                 pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
+                                 pressedOffline, pressedQuit, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
             }
 
             gfxFlushBuffers();
