@@ -361,11 +361,13 @@ static void drawGameBoard(uint8_t *fb, int width, int height, const GameUiState 
             const bool target = game.pieceSelected && r == game.targetRow && c == game.targetCol;
             const bool cursor = r == game.cursorRow && c == game.cursorCol;
             const bool movable = !game.pieceSelected && gameHasMove(game, r, c);
+            const bool flashing = game.flashTimer > 0;
             const Color tileColor = (r + c) % 2 == 0 ? C_BOARD_LIGHT : C_BOARD_DARK;
             fillRect(fb, width, height, x, y, tile - 1, tile - 1, tileColor);
             if (movable || selected || target)
             {
-                Color ring = selected || target ? C_SELECTED : C_MOVE;
+                Color ring = C_MOVE;
+                if (selected || target) ring = flashing ? C_ERROR : C_SELECTED;
                 drawRoundRect(fb, width, height, x + 2, y + 2, tile - 5, tile - 5, 4, 3, ring);
             }
             if (cursor)
@@ -407,34 +409,58 @@ static void drawGameInstructionRow(uint8_t *fb, int x, int y, const char *badge,
 void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
 {
     clearScreen(fb, TOP_W, TOP_H, C_BG);
+
+    if (game.gameOver)
+    {
+        const char *title = "DRAW";
+        Color col = C_TEXT;
+        if (game.winner == game.player) { title = "YOU WIN!"; col = C_SUCCESS; }
+        else if (game.winner == 'W' || game.winner == 'B') { title = "YOU LOSE"; col = C_ERROR; }
+        fillRoundRect(fb, TOP_W, TOP_H, 40, 70, TOP_W - 80, 120, 14, C_BG_DARK);
+        drawRoundRect(fb, TOP_W, TOP_H, 40, 70, TOP_W - 80, 120, 14, 3, col);
+        int textW = (int)strlen(title) * 24;
+        drawText(fb, TOP_W, TOP_H, (TOP_W - textW) / 2, 108, title, 3, col);
+        drawText(fb, TOP_W, TOP_H, (TOP_W - 15 * 8) / 2, 164, "SELECT+B OR B: RETURN", 1, C_PRIMARY);
+        if (game.statusMsg && game.statusMsg[0])
+            drawTextWrapped(fb, TOP_W, TOP_H, 12, 190, TOP_W - 24, game.statusMsg, 1, C_TEXT);
+        return;
+    }
+
     fillRect(fb, TOP_W, TOP_H, 0, 0, TOP_W, 25, C_PRIMARY);
     drawText(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
     drawText(fb, TOP_W, TOP_H, 250, 8, game.turn == 'W' ? "WHITE TO MOVE" : "BLACK TO MOVE", 1, C_PRIMARY_TXT);
 
-    const bool waiting     = game.isOnline && game.turn != game.player;
-    const bool stepSelect  = !waiting && !game.pieceSelected;
-    const bool stepMove    = !waiting && game.pieceSelected && !game.confirmMove;
+    if (game.confirmMove)
+    {
+        fillRoundRect(fb, TOP_W, TOP_H, 20, 56, TOP_W - 40, 148, 14, C_PRIMARY);
+        drawRoundRect(fb, TOP_W, TOP_H, 20, 56, TOP_W - 40, 148, 14, 3, C_ACCENT);
+        drawText(fb, TOP_W, TOP_H, 56, 96, "SENDING MOVE", 3, C_PRIMARY_TXT);
+        drawText(fb, TOP_W, TOP_H, (TOP_W - 13 * 8) / 2, 156, "PLEASE WAIT...", 1, C_PRIMARY_TXT);
+        drawText(fb, TOP_W, TOP_H, (TOP_W - 24 * 8) / 2, 178, game.isOnline ? "WAITING FOR THE SERVER" : "APPLYING YOUR MOVE", 1, C_ACCENT);
+        if (game.statusMsg && game.statusMsg[0])
+            drawTextWrapped(fb, TOP_W, TOP_H, 12, 200, TOP_W - 24, game.statusMsg, 1, C_TEXT);
+        return;
+    }
+
+    const bool waiting    = game.isOnline && game.turn != game.player;
+    const bool stepSelect = !waiting && !game.pieceSelected;
+    const bool stepMove   = !waiting && game.pieceSelected && !game.confirmMove;
     const bool stepConfirm = !waiting && game.confirmMove;
 
     drawStepTab(fb, 16,  116, "SELECT",  stepSelect);
     drawStepTab(fb, 142, 116, "MOVE",    stepMove);
-    drawStepTab(fb, 268, 116, "SEND", stepConfirm);
+    drawStepTab(fb, 268, 116, "SEND",    stepConfirm);
 
     fillRoundRect(fb, TOP_W, TOP_H, 12, 66, 376, 104, 10, C_BG_DARK);
     drawRoundRect(fb, TOP_W, TOP_H, 12, 66, 376, 104, 10, 2, C_ACCENT);
 
     const int rx = 24;
+    const char *quitAction = game.isOnline ? "CONCEDE" : "EXIT";
     if (waiting)
     {
         drawText(fb, TOP_W, TOP_H, rx, 78, "WAITING FOR OPPONENT", 1, C_PRIMARY);
         drawGameInstructionRow(fb, rx, 106, "DPAD", "LOOK AT THE BOARD");
-        drawGameInstructionRow(fb, rx, 130, "B", "BACK TO LOBBY");
-    }
-    else if (stepConfirm)
-    {
-        drawText(fb, TOP_W, TOP_H, rx, 78, "SENDING MOVE", 1, C_PRIMARY);
-        drawGameInstructionRow(fb, rx, 106, "SENDING", game.isOnline ? "TO THE SERVER" : "APPLYING MOVE");
-        drawGameInstructionRow(fb, rx, 130, "WAIT", "FOR THE SERVER TO REPLY");
+        drawGameInstructionRow(fb, rx, 130, "SELECT+B", quitAction);
     }
     else if (stepMove)
     {
@@ -448,25 +474,16 @@ void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
         drawText(fb, TOP_W, TOP_H, rx, 78, "SELECT A PIECE", 1, C_PRIMARY);
         drawGameInstructionRow(fb, rx, 106, "DPAD", "MOVE CURSOR");
         drawGameInstructionRow(fb, rx, 130, "A/TOUCH", "SELECT PIECE");
-        drawGameInstructionRow(fb, rx, 154, "B", "BACK TO LOBBY");
+        drawGameInstructionRow(fb, rx, 154, "SELECT+B", quitAction);
     }
 
     if (game.statusMsg && game.statusMsg[0])
         drawTextWrapped(fb, TOP_W, TOP_H, 12, 182, TOP_W - 24, game.statusMsg, 1, C_PRIMARY);
 }
 
-void drawGameBottomScreen(uint8_t *fb, const GameUiState &game,
-                          bool pressedConcede, bool pressedExit)
+void drawGameBottomScreen(uint8_t *fb, const GameUiState &game)
 {
     clearScreen(fb, BOT_W, BOT_H, C_BG_DARK);
-    const int tile = 38;
-    drawRoundRect(fb, BOT_W, BOT_H, 8, 2, 6 * tile + 8, 6 * tile + 8, 8, 3, C_PRIMARY);
-    drawGameBoard(fb, BOT_W, BOT_H, game, 12, 6, tile);
-
-    static const Button btnConcede = {246, 96, 68, 48, "Concede", C_ERROR, C_PRIMARY_TXT, C_ACCENT};
-    static const Button btnExit    = {246, 96, 68, 48, "Exit", C_BG, C_TEXT, C_ACCENT};
-    if (game.isOnline)
-        drawButton(fb, btnConcede, pressedConcede);
-    else
-        drawButton(fb, btnExit, pressedExit);
+    drawRoundRect(fb, BOT_W, BOT_H, BOARD_X - 4, BOARD_Y - 4, BOARD_PX + 8, BOARD_PX + 8, 8, 3, C_PRIMARY);
+    drawGameBoard(fb, BOT_W, BOT_H, game, BOARD_X, BOARD_Y, BOARD_TILE);
 }

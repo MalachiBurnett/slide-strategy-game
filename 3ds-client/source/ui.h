@@ -5,6 +5,12 @@
 
 #include "render.h"
 
+// Centered game-board layout (bottom screen, 320x240; board is 228x228).
+constexpr int BOARD_X    = 46;
+constexpr int BOARD_Y    = 6;
+constexpr int BOARD_TILE = 38;
+constexpr int BOARD_PX   = 6 * BOARD_TILE;   // 228
+
 // ---------------------------------------------------------------------------
 // AppState
 // ---------------------------------------------------------------------------
@@ -54,6 +60,9 @@ struct GameUiState
     bool pieceSelected;
     bool confirmMove;
     bool isOnline;
+    bool gameOver;
+    char winner;
+    int  flashTimer;
     const char *statusMsg;
 };
 
@@ -84,5 +93,4 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       int touchX, int touchY, bool touchActive);
 
 void drawGameTopScreen(uint8_t *fb, const GameUiState &game);
-void drawGameBottomScreen(uint8_t *fb, const GameUiState &game,
-                          bool pressedConcede = false, bool pressedExit = false);
+void drawGameBottomScreen(uint8_t *fb, const GameUiState &game);

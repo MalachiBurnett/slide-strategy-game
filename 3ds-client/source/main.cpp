@@ -157,7 +157,7 @@ static int focusPoints(AppState state, LobbyPage page, int outX[6], int outY[6])
         if (page == LobbyPage::HOME)
         {
             static const int p[][2] = {{82, 97}, {238, 97}, {82, 145},
-                                       {238, 145}, {160, 181}, {160, 222}};
+                                       {238, 145}, {160, 200}, {160, 222}};
             pts = p; n = 6;
         }
         else if (page == LobbyPage::PRIVATE_CHOICE)
@@ -191,28 +191,65 @@ static int focusPoints(AppState state, LobbyPage page, int outX[6], int outY[6])
     return n;
 }
 
-// Pick the focus target spatially: move in the pressed direction, preferring
-// the nearest button that is aligned with the current one.
-static int focusMove(const int xs[6], const int ys[6], int n, int focus,
-                     int dx, int dy)
+// ---------------------------------------------------------------------------
+// Focus navigation — linked-list style: each focus index stores its logical
+// neighbours (up/down/left/right). Moving in a direction jumps to the
+// adjacent button, mirroring the on-screen layout. -1 = stay put.
+// ---------------------------------------------------------------------------
+struct FocusLinks
 {
-    if (n <= 0) return focus;
-    int best = -1;
-    int bestScore = 0x7FFFFFFF;
-    for (int i = 0; i < n; ++i)
-    {
-        if (i == focus) continue;
-        if (dx != 0 && (xs[i] - xs[focus] < 0) != (dx < 0)) continue;
-        if (dy != 0 && (ys[i] - ys[focus] < 0) != (dy < 0)) continue;
-        int primary = dx != 0 ? abs(xs[i] - xs[focus]) : abs(ys[i] - ys[focus]);
-        int perp    = dx != 0 ? abs(ys[i] - ys[focus]) : abs(xs[i] - xs[focus]);
-        int score   = primary + perp * 2;
-        if (score < bestScore) { bestScore = score; best = i; }
-    }
-    if (best >= 0) return best;
-    // Nothing in that direction — wrap around the linear order.
-    int step = (dx + dy > 0) ? 1 : -1;
-    return (focus + step + n) % n;
+    int up, down, left, right;
+};
+
+static const FocusLinks &focusLinksFor(AppState state, LobbyPage page, int focus)
+{
+    // QR_LOGIN / ERROR_STATE: vertical stack of 4 full-width buttons.
+    static const FocusLinks QR[4] = {{0, 1, 0, 0}, {0, 2, 1, 1}, {1, 3, 2, 2}, {2, 3, 3, 3}};
+    static const FocusLinks INIT_ONE[1] = {{0, 0, 0, 0}};
+    // HOME: 2x2 grid + sign-out / quit full-width rows.
+    static const FocusLinks HOME[6] = {
+        {0, 2, 0, 1}, {1, 3, 0, 1}, {0, 4, 2, 3}, {1, 5, 2, 3},
+        {2, 5, 4, 5}, {3, 4, 4, 5}
+    };
+    // PRIVATE_CHOICE: 2x2 grid + quit.
+    static const FocusLinks PCHOICE[4] = {
+        {0, 2, 0, 1}, {1, 3, 0, 1}, {0, 3, 2, 3}, {1, 2, 2, 3}
+    };
+    // PRIVATE_JOIN: continue / back side-by-side + quit below.
+    static const FocusLinks PJOIN[3] = {
+        {0, 2, 1, 0}, {1, 2, 1, 0}, {0, 2, 1, 1}
+    };
+    // LOCAL_SETTINGS: variant row on top, start/back below.
+    static const FocusLinks LOCALSET[3] = {
+        {0, 1, 0, 0}, {0, 1, 2, 1}, {0, 2, 2, 1}
+    };
+    static const FocusLinks QUEUE_ONE[1] = {{0, 0, 0, 0}};
+    // PUBLIC_SETTINGS / PRIVATE_CREATE: 3 setting rows, continue/back, quit.
+    static const FocusLinks SETTINGS[6] = {
+        {0, 1, 0, 0}, {0, 2, 1, 1}, {1, 3, 2, 2}, {2, 5, 4, 3},
+        {2, 5, 4, 3}, {3, 5, 4, 3}
+    };
+
+    if (state == AppState::QR_LOGIN || state == AppState::ERROR_STATE)
+        return QR[focus < 0 ? 0 : (focus > 3 ? 3 : focus)];
+    if (state == AppState::INIT) return INIT_ONE[0];
+    if (state != AppState::LOGGED_IN) return INIT_ONE[0];
+    if (page == LobbyPage::QUEUE) return QUEUE_ONE[0];
+    if (page == LobbyPage::HOME) return HOME[focus < 0 ? 0 : (focus > 5 ? 5 : focus)];
+    if (page == LobbyPage::PRIVATE_CHOICE) return PCHOICE[focus < 0 ? 0 : (focus > 3 ? 3 : focus)];
+    if (page == LobbyPage::PRIVATE_JOIN) return PJOIN[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
+    if (page == LobbyPage::LOCAL_SETTINGS) return LOCALSET[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
+    return SETTINGS[focus < 0 ? 0 : (focus > 5 ? 5 : focus)];
+}
+
+static int focusMove(AppState state, LobbyPage page, int focus, int dx, int dy)
+{
+    const FocusLinks &links = focusLinksFor(state, page, focus);
+    if (dx < 0) return links.left;
+    if (dx > 0) return links.right;
+    if (dy < 0) return links.up;
+    if (dy > 0) return links.down;
+    return focus;
 }
 
 static bool focusPoint(AppState state, LobbyPage page, int focus,
@@ -279,6 +316,9 @@ static void resetGame(GameUiState &game, int selectedVariant = 0)
     game.cursorRow = game.cursorCol = 0;
     game.pieceSelected = false;
     game.confirmMove = false;
+    game.gameOver = false;
+    game.winner = 0;
+    game.flashTimer = 0;
     game.statusMsg = "Local game";
 }
 
@@ -329,7 +369,7 @@ static bool chooseFirstDestination(GameUiState &game)
 
 static void selectGamePiece(GameUiState &game, int r, int c)
 {
-    if (game.turn != game.player || r < 0 || r >= 6 || c < 0 || c >= 6 || game.board[r][c] != game.player ||
+    if (game.gameOver || game.turn != game.player || r < 0 || r >= 6 || c < 0 || c >= 6 || game.board[r][c] != game.player ||
         !hasLegalDestination(game, r, c)) return;
     game.selectedRow = r;
     game.selectedCol = c;
@@ -417,6 +457,18 @@ static void applyGameMove(GameUiState &game)
     game.statusMsg = "Move complete";
 }
 
+// Apply the move to the board immediately for instant UI feedback, then flag
+// the pending server send. The server's authoritative board replaces this
+// once the POST completes (see the sendPending block).
+static void confirmOnlineMove(GameUiState &game, bool &sendPending)
+{
+    game.board[game.targetRow][game.targetCol] = game.player;
+    game.board[game.selectedRow][game.selectedCol] = '0';
+    game.statusMsg = "Sending move...";
+    game.confirmMove = true;
+    sendPending = true;
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -472,8 +524,6 @@ int main()
     static const Button BTN_MATCH_SETTING = {8, 28, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
     static const Button BTN_TIME_SETTING = {8, 52, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
     static const Button BTN_VARIANT_SETTING = {8, 76, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-    static const Button BTN_CONCEDE  = {246, 96, 68, 48, "Concede", C_ERROR, C_PRIMARY_TXT, C_ACCENT};
-    static const Button BTN_GAME_EXIT = {246, 96, 68, 48, "Exit", C_BG_DARK, C_TEXT, C_ACCENT};
 
     // ---------------------------------------------------------------------------
     // State
@@ -501,8 +551,9 @@ int main()
     u64 lastPollingTick = 0;
     constexpr u64 POLLING_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 1000;
     bool sendPending = false;
-    int pressPulse = 0;
-    constexpr int PRESS_PULSE_FRAMES = 5;
+    bool focusPressActive = false;
+    int  focusPressX = 0;
+    int  focusPressY = 0;
 
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -513,8 +564,6 @@ int main()
     bool pressedOffline = false;
     bool pressedSignOut = false;
     bool pressedQuit   = false;
-    bool pressedConcede = false;
-    bool pressedExit    = false;
     bool returnToErrorAfterKeyboardCancel = false;
 
     u64 lastPollTick = 0;
@@ -522,8 +571,7 @@ int main()
     int previousNavDx = 0;
     int previousNavDy = 0;
 
-    // Render one frame from the current state. Also draws the press-pulse ring
-    // so any button press is immediately acknowledged on screen.
+    // Render one frame from the current state.
     auto renderFrame = [&](int touchX, int touchY, bool touchActive)
     {
         uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
@@ -532,7 +580,7 @@ int main()
         if (gameActive)
         {
             drawGameTopScreen(topFb, game);
-            drawGameBottomScreen(botFb, game, pressedConcede, pressedExit);
+            drawGameBottomScreen(botFb, game);
         }
         else
         {
@@ -540,14 +588,6 @@ int main()
             drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
                              pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
                              BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive);
-        }
-
-        if (pressPulse > 0)
-        {
-            fillRect(botFb, BOT_W, BOT_H, 0, 0, BOT_W, 3, C_SUCCESS);
-            fillRect(botFb, BOT_W, BOT_H, 0, BOT_H - 3, BOT_W, 3, C_SUCCESS);
-            fillRect(botFb, BOT_W, BOT_H, 0, 0, 3, BOT_H, C_SUCCESS);
-            fillRect(botFb, BOT_W, BOT_H, BOT_W - 3, 0, 3, BOT_H, C_SUCCESS);
         }
 
         gfxFlushBuffers();
@@ -655,7 +695,6 @@ main_loop:
         hidScanInput();
         u32 kDown = hidKeysDown();
         u32 kHeld = hidKeysHeld();
-        if (kDown) pressPulse = PRESS_PULSE_FRAMES;
 
         touchPosition touch;
         hidTouchRead(&touch);
@@ -685,15 +724,43 @@ main_loop:
                 jsonExtract(moveResponse.data, "error", serverError, sizeof(serverError));
                 snprintf(statusMsg, sizeof(statusMsg), "%s", serverError[0] ? serverError :
                          (moveError[0] ? moveError : "Move failed"));
+                // Revert the optimistic move so the board shows reality again.
+                game.board[game.selectedRow][game.selectedCol] = game.player;
+                game.board[game.targetRow][game.targetCol] = '0';
                 game.confirmMove = false;
                 game.statusMsg = statusMsg;
             }
             else
             {
+                char respStatus[16] = {};
+                char respWinner[4] = {};
+                jsonExtract(moveResponse.data, "status", respStatus, sizeof(respStatus));
+                jsonExtract(moveResponse.data, "winner", respWinner, sizeof(respWinner));
                 game.confirmMove = false;
                 game.pieceSelected = false;
-                game.turn = game.player == 'W' ? 'B' : 'W';
-                game.statusMsg = "Move sent. Waiting for server";
+                game.selectedRow = game.selectedCol = -1;
+                game.targetRow = game.targetCol = -1;
+                if (parseBoard(moveResponse.data, game.board))
+                {
+                    if (strcmp(respStatus, "finished") == 0)
+                    {
+                        game.gameOver = true;
+                        game.winner = respWinner[0] ? respWinner[0] : 0;
+                        game.isOnline = false;
+                        onlineGame = false;
+                        game.statusMsg = "Match complete";
+                    }
+                    else
+                    {
+                        game.turn = game.player == 'W' ? 'B' : 'W';
+                        game.statusMsg = "Move sent. Waiting for server";
+                    }
+                }
+                else
+                {
+                    game.turn = game.player == 'W' ? 'B' : 'W';
+                    game.statusMsg = "Move sent. Waiting for server";
+                }
                 lastPollingTick = 0;
             }
             freeBuf(moveResponse);
@@ -730,10 +797,37 @@ main_loop:
                         game.cursorRow = game.cursorCol = 0;
                         game.pieceSelected = false;
                         game.confirmMove = false;
+                        game.gameOver = false;
+                        game.winner = 0;
+                        game.flashTimer = 0;
                         game.statusMsg = game.turn == game.player ? "Choose a piece to move" : "Waiting for opponent";
                         game.isOnline = true;
                         queueing = false;
                         onlineGame = true;
+                        gameActive = true;
+                        lobbyPage = LobbyPage::HOME;
+                    }
+                }
+                else if (strcmp(pollStatus, "finished") == 0)
+                {
+                    char color[4] = "W";
+                    char winner[4] = {};
+                    jsonExtract(response.data, "gameId", pollingGameId, sizeof(pollingGameId));
+                    jsonExtract(response.data, "color", color, sizeof(color));
+                    jsonExtract(response.data, "winner", winner, sizeof(winner));
+                    if (parseBoard(response.data, game.board))
+                    {
+                        game.player = color[0] == 'B' ? 'B' : 'W';
+                        game.selectedRow = game.selectedCol = -1;
+                        game.targetRow = game.targetCol = -1;
+                        game.pieceSelected = false;
+                        game.confirmMove = false;
+                        game.gameOver = true;
+                        game.winner = winner[0] ? winner[0] : 0;
+                        game.isOnline = false;
+                        game.statusMsg = "Match complete";
+                        queueing = false;
+                        onlineGame = false;
                         gameActive = true;
                         lobbyPage = LobbyPage::HOME;
                     }
@@ -774,7 +868,7 @@ main_loop:
             int n = focusPoints(state, lobbyPage, xs, ys);
             if (n > 0)
             {
-                focusIndex = focusMove(xs, ys, n, focusIndex, navDx, navDy);
+                focusIndex = focusMove(state, lobbyPage, focusIndex, navDx, navDy);
                 focusVisible = true;
             }
             previousNavDx = navDx;
@@ -797,7 +891,21 @@ main_loop:
                 touch.py = focusY;
                 touched = true;
                 touchHeld = true;
+                focusPressActive = true;
+                focusPressX = focusX;
+                focusPressY = focusY;
             }
+        }
+        else if (!gameActive && focusPressActive)
+        {
+            if (kHeld & KEY_A)
+            {
+                touch.px = focusPressX;
+                touch.py = focusPressY;
+                touchHeld = true;
+            }
+            else
+                focusPressActive = false;
         }
 
         pressedSignIn = touchHeld && buttonHit(BTN_SIGNIN, touch.px, touch.py);
@@ -806,14 +914,46 @@ main_loop:
         pressedOffline = touchHeld && buttonHit(BTN_OFFLINE, touch.px, touch.py);
         pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
         pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
-        pressedConcede = touchHeld && buttonHit(BTN_CONCEDE,  touch.px, touch.py);
-        pressedExit    = touchHeld && buttonHit(BTN_GAME_EXIT, touch.px, touch.py);
 
         if (kDown & KEY_START) break;
 
         if (gameActive)
         {
-            if (kDown & KEY_B)
+            const bool quitComboB = (kDown & KEY_B) && (kHeld & KEY_SELECT);
+            const bool quitComboS = (kDown & KEY_SELECT) && (kHeld & KEY_B);
+
+            if (quitComboB || quitComboS)
+            {
+                if (onlineGame && !game.gameOver)
+                {
+                    game.statusMsg = "Forfeiting...";
+                    renderFrame(touch.px, touch.py, touchHeld);
+                    char concedeJson[128];
+                    snprintf(concedeJson, sizeof(concedeJson),
+                             "{\"authCode\":\"%s\",\"gameId\":\"%s\"}", savedAuthCode, pollingGameId);
+                    CurlBuf concedeResponse = allocBuf();
+                    CURLcode concedeCurl = CURLE_OK;
+                    char concedeError[CURL_ERROR_SIZE] = {};
+                    httpPost("/api/3ds/concede", concedeJson, concedeResponse, concedeCurl, concedeError);
+                    freeBuf(concedeResponse);
+                    onlineGame = false;
+                    game.isOnline = false;
+                    gameActive = false;
+                    queueing = false;
+                    lobbyPage = LobbyPage::HOME;
+                    snprintf(statusMsg, sizeof(statusMsg), "You forfeited the game");
+                }
+                else
+                {
+                    gameActive = false;
+                    onlineGame = false;
+                    queueing = false;
+                    game.isOnline = false;
+                    statusMsg[0] = 0;
+                }
+                goto render;
+            }
+            else if (kDown & KEY_B)
             {
                 if (game.pieceSelected)
                 {
@@ -844,16 +984,14 @@ main_loop:
             if (gameDirection >= 0 && !game.confirmMove)
             {
                 if (!moveGameCursor(game, gameDirection))
-                {
-                    game.statusMsg = "Blocked - no room to slide";
-                    pressPulse = PRESS_PULSE_FRAMES;
-                }
+                    game.flashTimer = 6;
             }
 
-            if (touched && touch.px >= 12 && touch.px < 240 && touch.py >= 6 && touch.py < 234)
+            if (!game.confirmMove && touched && touch.px >= BOARD_X && touch.px < BOARD_X + BOARD_PX &&
+                touch.py >= BOARD_Y && touch.py < BOARD_Y + BOARD_PX)
             {
-                int c = (touch.px - 12) / 38;
-                int r = (touch.py - 6) / 38;
+                int c = (touch.px - BOARD_X) / BOARD_TILE;
+                int r = (touch.py - BOARD_Y) / BOARD_TILE;
                 if (!game.pieceSelected)
                     selectGamePiece(game, r, c);
                 else if (trySetDirectionToCell(game, r, c))
@@ -861,54 +999,23 @@ main_loop:
                     game.cursorRow = game.targetRow;
                     game.cursorCol = game.targetCol;
                     if (onlineGame)
-                    {
-                        game.statusMsg = "Sending move...";
-                        game.confirmMove = true;
-                        sendPending = true;
-                    }
+                        confirmOnlineMove(game, sendPending);
                     else
                         applyGameMove(game);
                 }
                 else if (game.board[r][c] == game.player)
                     selectGamePiece(game, r, c);
             }
-            else if (touched && onlineGame && buttonHit(BTN_CONCEDE, touch.px, touch.py))
-            {
-                game.statusMsg = "Forfeiting...";
-                renderFrame(touch.px, touch.py, touchHeld);
-                char concedeJson[128];
-                snprintf(concedeJson, sizeof(concedeJson),
-                         "{\"authCode\":\"%s\",\"gameId\":\"%s\"}", savedAuthCode, pollingGameId);
-                CurlBuf concedeResponse = allocBuf();
-                CURLcode concedeCurl = CURLE_OK;
-                char concedeError[CURL_ERROR_SIZE] = {};
-                httpPost("/api/3ds/concede", concedeJson, concedeResponse, concedeCurl, concedeError);
-                freeBuf(concedeResponse);
-                onlineGame = false;
-                game.isOnline = false;
-                gameActive = false;
-                queueing = false;
-                lobbyPage = LobbyPage::HOME;
-                snprintf(statusMsg, sizeof(statusMsg), "You forfeited the game");
-            }
-            else if (touched && !onlineGame && buttonHit(BTN_GAME_EXIT, touch.px, touch.py))
-            {
-                gameActive = false;
-                statusMsg[0] = 0;
-            }
-            if ((kDown & KEY_A) && game.pieceSelected)
+            if ((kDown & KEY_A) && game.pieceSelected && !game.confirmMove)
             {
                 if (onlineGame)
-                {
-                    game.statusMsg = "Sending move...";
-                    game.confirmMove = true;
-                    sendPending = true;
-                }
+                    confirmOnlineMove(game, sendPending);
                 else
                     applyGameMove(game);
             }
             else if (kDown & KEY_A)
                 selectGamePiece(game, game.cursorRow, game.cursorCol);
+            if (game.flashTimer > 0) --game.flashTimer;
             goto render;
         }
 
@@ -1288,7 +1395,6 @@ main_loop:
 
     render:
         renderFrame(touch.px, touch.py, touchHeld);
-        if (pressPulse > 0) --pressPulse;
     }
 
     curl_global_cleanup();

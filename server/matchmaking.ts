@@ -88,7 +88,16 @@ export function setupMatchmaking(io: Server, app?: express.Application) {
       db.get("SELECT * FROM games WHERE status = 'active' AND (player_w = ? OR player_b = ?) ORDER BY last_move_time DESC LIMIT 1",
         [user.id, user.id], (err, game: any) => {
           if (err) return res.status(500).json({ error: "Failed to read game status" });
-          if (!game) return res.json({ status: "idle" });
+          if (!game) {
+            db.get("SELECT * FROM games WHERE status = 'finished' AND (player_w = ? OR player_b = ?) ORDER BY last_move_time DESC LIMIT 1",
+              [user.id, user.id], (endErr, finished: any) => {
+                if (endErr || !finished) return res.json({ status: "idle" });
+                const endColor = Number(finished.player_w) === Number(user.id) ? "W" : "B";
+                res.json({ status: "finished", gameId: finished.id, color: endColor,
+                  winner: finished.winner, board: JSON.parse(finished.board) });
+              });
+            return;
+          }
           const color = Number(game.player_w) === Number(user.id) ? "W" : "B";
           res.json({ status: "matched", gameId: game.id, color, board: JSON.parse(game.board), turn: game.turn,
             variant: game.variant, timerW: game.timer_w, timerB: game.timer_b, isRated: !!game.is_rated });
