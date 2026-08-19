@@ -51,9 +51,8 @@ CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++14
 ASFLAGS := -g $(ARCH)
 LDFLAGS  = -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-# curl pulls in mbedtls + zlib; wslay has no extra deps
+# curl pulls in mbedtls + zlib
 LIBS := -lcurl \
-        -lwslay \
         -lmbedtls -lmbedx509 -lmbedcrypto \
         -lz \
         -lctru -lm

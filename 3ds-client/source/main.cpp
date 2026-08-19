@@ -70,29 +70,7 @@ static bool jsonExtract(const char *json, const char *key, char *outVal, int max
     }
 }
 
-static bool parseSocketEvent(const char *packet, char *event, int eventLen,
-                             char *payload, int payloadLen)
-{
-    if (!packet || strncmp(packet, "42[\"", 4) != 0) return false;
-    const char *eventStart = packet + 4;
-    const char *eventEnd = strchr(eventStart, '"');
-    if (!eventEnd) return false;
-    int eventSize = (int)(eventEnd - eventStart);
-    if (eventSize <= 0 || eventSize >= eventLen) return false;
-    memcpy(event, eventStart, eventSize);
-    event[eventSize] = 0;
 
-    const char *payloadStart = strchr(eventEnd + 1, ',');
-    if (!payloadStart) return false;
-    ++payloadStart;
-    const char *payloadEnd = strrchr(payloadStart, ']');
-    if (!payloadEnd || payloadEnd <= payloadStart) return false;
-    int payloadSize = (int)(payloadEnd - payloadStart);
-    if (payloadSize >= payloadLen) payloadSize = payloadLen - 1;
-    memcpy(payload, payloadStart, payloadSize);
-    payload[payloadSize] = 0;
-    return true;
-}
 
 static bool parseBoard(const char *json, char board[6][6])
 {
@@ -257,6 +235,7 @@ static void resetGame(GameUiState &game, int selectedVariant = 0)
     }
     game.player = 'W';
     game.turn = 'W';
+    game.isOnline = false;
     game.selectedRow = game.selectedCol = -1;
     game.targetRow = game.targetCol = -1;
     game.cursorRow = game.cursorCol = 0;
@@ -435,7 +414,6 @@ int main()
     char savedAuthCode[AUTHCODE_LEN + 2] = {};
     char username[64]   = {};
     char elo[16]        = "600";
-    int userId = 0;
     char joinCode[32]   = {};
     LobbyPage lobbyPage = LobbyPage::HOME;
     int focusIndex = 0;
@@ -445,19 +423,9 @@ int main()
     int variant = 0;
     bool gameActive = false;
     bool onlineGame = false;
-    bool pollingMode = true;
     bool queueing = false;
-    bool socketAttempted = false;
-    u64 nextSocketRetryTick = 0;
-    char queuedTimeControl[16] = {};
-    char queuedVariant[24] = {};
-    bool queuedRated = false;
-    char activeGameId[64] = {};
     GameUiState game = {};
     resetGame(game);
-    SocketIoClient socket;
-    char socketError[192] = {};
-    char socketPacket[4096] = {};
     char pollingGameId[64] = {};
     u64 lastPollingTick = 0;
     constexpr u64 POLLING_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 1000;
@@ -522,7 +490,6 @@ int main()
             jsonExtract(resp.data, "username", uname, sizeof(uname));
             jsonExtract(resp.data, "id", idValue, sizeof(idValue));
             jsonExtract(resp.data, "elo", elo, sizeof(elo));
-            userId = atoi(idValue);
             snprintf(username,  sizeof(username),  "%s", uname);
             snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
             state = AppState::LOGGED_IN;
@@ -587,146 +554,9 @@ main_loop:
         circlePosition circle;
         hidCircleRead(&circle);
 
-        if (state == AppState::LOGGED_IN && !pollingMode && !socketAttempted &&
-            (!queueing || svcGetSystemTick() >= nextSocketRetryTick))
-        {
-            socketAttempted = true;
-            if (!socket.connect(socketError, sizeof(socketError)))
-            {
-                if (queueing)
-                {
-                    snprintf(statusMsg, sizeof(statusMsg), "Reconnecting to matchmaking...");
-                    socketAttempted = false;
-                    nextSocketRetryTick = svcGetSystemTick() + CPU_TICKS_PER_MSEC * 2000;
-                }
-                else
-                {
-                    snprintf(statusMsg, sizeof(statusMsg), "%s", socketError);
-                    state = AppState::ERROR_STATE;
-                }
-            }
-            else if (queueing)
-            {
-                char queueJson[192];
-                char queueError[192] = {};
-                snprintf(queueJson, sizeof(queueJson),
-                         "{\"userId\":%d,\"elo\":%d,\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
-                         userId, atoi(elo), queuedTimeControl, queuedVariant,
-                         queuedRated ? "true" : "false");
-                if (!socket.sendEvent("join_queue", queueJson, queueError, sizeof(queueError)))
-                {
-                    snprintf(statusMsg, sizeof(statusMsg), "Queue reconnect failed: %s", queueError);
-                    socket.close();
-                    socketAttempted = false;
-                    nextSocketRetryTick = svcGetSystemTick() + CPU_TICKS_PER_MSEC * 2000;
-                }
-            }
-        }
-
-        if (socket.isConnected())
-        {
-            while (socket.receive(socketPacket, sizeof(socketPacket), socketError, sizeof(socketError)))
-            {
-                if (strcmp(socketPacket, "2") == 0)
-                {
-                    socket.sendRaw("3", socketError, sizeof(socketError));
-                    continue;
-                }
-
-                char eventName[64] = {};
-                char eventPayload[3800] = {};
-                if (!parseSocketEvent(socketPacket, eventName, sizeof(eventName),
-                                      eventPayload, sizeof(eventPayload)))
-                    continue;
-
-                if (strcmp(eventName, "match_found") == 0)
-                {
-                    if (!queueing)
-                        continue;
-                    char color[4] = "W";
-                    jsonExtract(eventPayload, "gameId", activeGameId, sizeof(activeGameId));
-                    jsonExtract(eventPayload, "color", color, sizeof(color));
-                    char joinError[192] = {};
-                    char joinPayload[80];
-                    snprintf(joinPayload, sizeof(joinPayload), "\"%s\"", activeGameId);
-                    if (!socket.sendEvent("join_game", joinPayload, joinError, sizeof(joinError)))
-                    {
-                        snprintf(statusMsg, sizeof(statusMsg), "Could not join game room: %s", joinError);
-                        state = AppState::ERROR_STATE;
-                        gameActive = false;
-                        break;
-                    }
-                    if (!parseBoard(eventPayload, game.board))
-                    {
-                        snprintf(statusMsg, sizeof(statusMsg), "Socket.IO match_found had no valid board");
-                        state = AppState::ERROR_STATE;
-                        gameActive = false;
-                        break;
-                    }
-                    game.player = color[0] == 'B' ? 'B' : 'W';
-                    game.turn = 'W';
-                    game.selectedRow = game.selectedCol = -1;
-                    game.targetRow = game.targetCol = -1;
-                    game.cursorRow = game.cursorCol = 0;
-                    game.pieceSelected = false;
-                    game.confirmMove = false;
-                    game.statusMsg = "Choose a piece to move";
-                    onlineGame = true;
-                    queueing = false;
-                    gameActive = true;
-                }
-                else if (strcmp(eventName, "game_update") == 0 && onlineGame)
-                {
-                    char turn[4] = "W";
-                    if (parseBoard(eventPayload, game.board))
-                    {
-                        jsonExtract(eventPayload, "turn", turn, sizeof(turn));
-                        game.turn = turn[0] == 'B' ? 'B' : 'W';
-                        game.pieceSelected = false;
-                        game.confirmMove = false;
-                        game.selectedRow = game.selectedCol = -1;
-                        game.targetRow = game.targetCol = -1;
-                        game.statusMsg = game.turn == game.player
-                                       ? "Choose a piece to move" : "Waiting for opponent";
-                        if (strstr(eventPayload, "\"status\":\"finished\""))
-                        {
-                            game.statusMsg = "Game ended";
-                            onlineGame = false;
-                        }
-                    }
-                }
-                else if (strcmp(eventName, "error") == 0)
-                {
-                    char message[160] = {};
-                    jsonExtract(eventPayload, "message", message, sizeof(message));
-                    snprintf(statusMsg, sizeof(statusMsg), "%s", message[0] ? message : eventPayload);
-                    state = AppState::ERROR_STATE;
-                    gameActive = false;
-                }
-            }
-            if (!socket.isConnected() && socketError[0])
-            {
-                if (queueing)
-                {
-                    snprintf(statusMsg, sizeof(statusMsg), "Matchmaking connection lost; reconnecting...");
-                    socketAttempted = false;
-                    nextSocketRetryTick = svcGetSystemTick() + CPU_TICKS_PER_MSEC * 2000;
-                }
-                else if (gameActive && !onlineGame)
-                {
-                    socketError[0] = 0;
-                }
-                else
-                {
-                    snprintf(statusMsg, sizeof(statusMsg), "%s", socketError);
-                    state = AppState::ERROR_STATE;
-                    gameActive = false;
-                }
-            }
-        }
-
-        if (pollingMode && state == AppState::LOGGED_IN &&
-            (queueing || onlineGame) && svcGetSystemTick() - lastPollingTick >= POLLING_INTERVAL_TICKS)
+        if (state == AppState::LOGGED_IN &&
+            (queueing || (onlineGame && game.turn != game.player)) &&
+            svcGetSystemTick() - lastPollingTick >= POLLING_INTERVAL_TICKS)
         {
             lastPollingTick = svcGetSystemTick();
             char pollJson[96];
@@ -756,6 +586,7 @@ main_loop:
                         game.pieceSelected = false;
                         game.confirmMove = false;
                         game.statusMsg = game.turn == game.player ? "Choose a piece to move" : "Waiting for opponent";
+                        game.isOnline = true;
                         queueing = false;
                         onlineGame = true;
                         gameActive = true;
@@ -817,6 +648,10 @@ main_loop:
         pressedOffline = touchHeld && buttonHit(BTN_OFFLINE, touch.px, touch.py);
         pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
         pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
+        static const Button BTN_CONCEDE  = {246, 96, 68, 48, "Concede", C_ERROR, C_PRIMARY_TXT, C_ACCENT};
+        static const Button BTN_GAME_EXIT = {246, 96, 68, 48, "Exit", C_BG_DARK, C_TEXT, C_ACCENT};
+        bool pressedConcede = touchHeld && buttonHit(BTN_CONCEDE,  touch.px, touch.py);
+        bool pressedExit    = touchHeld && buttonHit(BTN_GAME_EXIT, touch.px, touch.py);
 
         if (kDown & KEY_START) break;
 
@@ -839,6 +674,9 @@ main_loop:
                 else
                 {
                     gameActive = false;
+                    onlineGame = false;
+                    queueing = false;
+                    game.isOnline = false;
                     statusMsg[0] = 0;
                 }
             }
@@ -855,13 +693,35 @@ main_loop:
             if (gameDirection >= 0 && !game.confirmMove)
                 moveGameCursor(game, gameDirection);
 
-            if (touched && touch.px >= 5 && touch.px < 233 && touch.py >= 5 && touch.py < 233)
+            if (touched && touch.px >= 12 && touch.px < 240 && touch.py >= 6 && touch.py < 234)
             {
-                int c = (touch.px - 5) / 38;
-                int r = (touch.py - 5) / 38;
+                int c = (touch.px - 12) / 38;
+                int r = (touch.py - 6) / 38;
                 if (!game.pieceSelected) selectGamePiece(game, r, c);
                 else if (r == game.targetRow && c == game.targetCol) game.confirmMove = true;
                 else if (game.board[r][c] == game.player) selectGamePiece(game, r, c);
+            }
+            else if (touched && onlineGame && buttonHit(BTN_CONCEDE, touch.px, touch.py))
+            {
+                char concedeJson[128];
+                snprintf(concedeJson, sizeof(concedeJson),
+                         "{\"authCode\":\"%s\",\"gameId\":\"%s\"}", savedAuthCode, pollingGameId);
+                CurlBuf concedeResponse = allocBuf();
+                CURLcode concedeCurl = CURLE_OK;
+                char concedeError[CURL_ERROR_SIZE] = {};
+                httpPost("/api/3ds/concede", concedeJson, concedeResponse, concedeCurl, concedeError);
+                freeBuf(concedeResponse);
+                onlineGame = false;
+                game.isOnline = false;
+                gameActive = false;
+                queueing = false;
+                lobbyPage = LobbyPage::HOME;
+                snprintf(statusMsg, sizeof(statusMsg), "You forfeited the game");
+            }
+            else if (touched && !onlineGame && buttonHit(BTN_GAME_EXIT, touch.px, touch.py))
+            {
+                gameActive = false;
+                statusMsg[0] = 0;
             }
             if ((kDown & KEY_A) && !game.confirmMove)
             {
@@ -893,7 +753,9 @@ main_loop:
                     {
                         game.confirmMove = false;
                         game.pieceSelected = false;
+                        game.turn = game.player == 'W' ? 'B' : 'W';
                         game.statusMsg = "Move sent. Waiting for server";
+                        lastPollingTick = 0;
                     }
                     freeBuf(moveResponse);
                 }
@@ -1039,7 +901,7 @@ main_loop:
                         onlineGame = false;
                         gameActive = true;
                     }
-                    else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS && pollingMode)
+                    else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS)
                     {
                         static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
                         char queueJson[160];
@@ -1055,12 +917,6 @@ main_loop:
                         long queueHttp = httpPost("/api/3ds/queue", queueJson, queueResponse, queueCurl, queueCurlError);
                         if (queueHttp == 200)
                         {
-                            static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
-                            snprintf(queuedTimeControl, sizeof(queuedTimeControl), "%s", queueTimes[timeControl]);
-                            snprintf(queuedVariant, sizeof(queuedVariant), "%s",
-                                     variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
-                                     variant == 2 ? "random_setup" : "schizophrenic");
-                            queuedRated = isRated;
                             queueing = true;
                             lobbyPage = LobbyPage::QUEUE;
                             focusIndex = 0;
@@ -1091,8 +947,6 @@ main_loop:
             else if ((state == AppState::QR_LOGIN || state == AppState::ERROR_STATE) &&
                 buttonHit(BTN_OFFLINE, touch.px, touch.py))
             {
-                socketAttempted = true;
-                userId = 0;
                 snprintf(username, sizeof(username), "Offline");
                 snprintf(elo, sizeof(elo), "-");
                 state = AppState::LOGGED_IN;
@@ -1118,7 +972,6 @@ main_loop:
                     jsonExtract(resp.data, "username", guestName, sizeof(guestName));
                     jsonExtract(resp.data, "id", idValue, sizeof(idValue));
                     jsonExtract(resp.data, "elo", elo, sizeof(elo));
-                    userId = atoi(idValue);
                     snprintf(username, sizeof(username), "%s", guestName);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", guestName, elo);
                     state = AppState::LOGGED_IN;
@@ -1169,7 +1022,6 @@ main_loop:
                     jsonExtract(resp.data, "authCode", ac, sizeof(ac));
                     jsonExtract(resp.data, "id", idValue, sizeof(idValue));
                     jsonExtract(resp.data, "elo", elo, sizeof(elo));
-                    userId = atoi(idValue);
                     snprintf(username,  sizeof(username),  "%s", uname);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
                     if (ac[0]) { saveAuthCode(ac); snprintf(savedAuthCode, sizeof(savedAuthCode), "%s", ac); }
@@ -1223,7 +1075,6 @@ main_loop:
                         jsonExtract(resp.data, "id", idValue, sizeof(idValue));
 
                         snprintf(username, sizeof(username), "%s", uname);
-                        userId = atoi(idValue);
                         if (ac[0]) { saveAuthCode(ac); snprintf(savedAuthCode, sizeof(savedAuthCode), "%s", ac); }
 
                         state = AppState::LOGGED_IN;
@@ -1285,7 +1136,7 @@ main_loop:
             if (gameActive)
             {
                 drawGameTopScreen(topFb, game);
-                drawGameBottomScreen(botFb, game);
+                drawGameBottomScreen(botFb, game, pressedConcede, pressedExit);
             }
             else
             {

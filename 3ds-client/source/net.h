@@ -1,5 +1,5 @@
 /*
- * net.h — HTTP helpers plus native 3DS Socket.IO transport.
+ * net.h — HTTP helpers for the 3DS Slide client (HTTPS polling only).
  *
  * Key fixes vs the original monolithic main.cpp:
  *   • BASE_URL uses HTTPS (was HTTP — caused redirect/connection failure).
@@ -50,25 +50,4 @@ long httpPost(const char *path,
               CURLcode   &outCurlCode,
               char        outCurlError[CURL_ERROR_SIZE]);
 
-class SocketIoClient
-{
-public:
-    SocketIoClient();
-    ~SocketIoClient();
 
-    bool connect(char *error, int errorLen);
-    void close();
-    bool isConnected() const;
-    bool sendEvent(const char *event, const char *jsonData,
-                   char *error, int errorLen);
-    bool sendRaw(const char *packet, char *error, int errorLen);
-    bool receive(char *out, int outLen, char *error, int errorLen);
-
-private:
-    CURL *curl;
-    bool connected;
-    unsigned char receiveBuffer[8192];
-    size_t receiveLength;
-    bool sendFrame(unsigned char opcode, const void *payload, size_t payloadLength,
-                   char *error, int errorLen);
-};

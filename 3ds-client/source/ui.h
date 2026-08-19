@@ -53,6 +53,7 @@ struct GameUiState
     int cursorCol;
     bool pieceSelected;
     bool confirmMove;
+    bool isOnline;
     const char *statusMsg;
 };
 
@@ -82,4 +83,5 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       const Button &btnQuit);
 
 void drawGameTopScreen(uint8_t *fb, const GameUiState &game);
-void drawGameBottomScreen(uint8_t *fb, const GameUiState &game);
+void drawGameBottomScreen(uint8_t *fb, const GameUiState &game,
+                          bool pressedConcede = false, bool pressedExit = false);
