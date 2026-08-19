@@ -1,5 +1,5 @@
 /*
- * net.h — HTTP helpers plus Socket.IO transport via libcurl over 3DS SOC.
+ * net.h — HTTP helpers plus native 3DS Socket.IO transport.
  *
  * Key fixes vs the original monolithic main.cpp:
  *   • BASE_URL uses HTTPS (was HTTP — caused redirect/connection failure).
@@ -69,4 +69,6 @@ private:
     bool connected;
     unsigned char receiveBuffer[8192];
     size_t receiveLength;
+    bool sendFrame(unsigned char opcode, const void *payload, size_t payloadLength,
+                   char *error, int errorLen);
 };

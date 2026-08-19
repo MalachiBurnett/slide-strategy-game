@@ -3,7 +3,6 @@
  */
 #include "net.h"
 #include <3ds.h>
-#include <ctime>
 
 static constexpr int DNS_RETRY_ATTEMPTS = 3;
 static constexpr u64 DNS_RETRY_DELAY_TICKS = CPU_TICKS_PER_MSEC * 500;
@@ -194,6 +193,8 @@ bool SocketIoClient::connect(char *error, int errorLen)
     const char upgradeRequest[] =
         "GET /socket.io/?EIO=4&transport=websocket HTTP/1.1\r\n"
         "Host: slide.wiizardsoftware.uk\r\n"
+        "Origin: https://slide.wiizardsoftware.uk\r\n"
+        "User-Agent: Slide-3DS/1.0\r\n"
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
         "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
@@ -228,13 +229,21 @@ bool SocketIoClient::connect(char *error, int errorLen)
             close();
             return false;
         }
+        if (received == 0)
+        {
+            snprintf(error, errorLen, "Socket.IO upgrade peer closed before sending a response");
+            close();
+            return false;
+        }
         responseLength += received;
         response[responseLength] = 0;
         if (strstr(response, "\r\n\r\n")) break;
     }
-    if (strncmp(response, "HTTP/1.1 101", 12) != 0)
+    if (strncmp(response, "HTTP/1.1 101", 12) != 0 &&
+        strncmp(response, "HTTP/1.0 101", 12) != 0)
     {
-        snprintf(error, errorLen, "Socket.IO upgrade rejected: %.180s", response);
+        snprintf(error, errorLen, "Socket.IO upgrade rejected (%lu bytes): %.160s",
+                 (unsigned long)responseLength, response);
         close();
         return false;
     }
@@ -268,11 +277,8 @@ void SocketIoClient::close()
     {
         if (connected)
         {
-            size_t sent = 0;
-            const unsigned char closeFrame[] = {
-                0x88, 0x80, 0x53, 0x6c, 0x69, 0x64
-            };
-            curl_easy_send(curl, closeFrame, sizeof(closeFrame), &sent);
+            char ignored[1] = {};
+            sendFrame(0x8, nullptr, 0, ignored, sizeof(ignored));
         }
         curl_easy_cleanup(curl);
     }
@@ -303,19 +309,24 @@ bool SocketIoClient::sendEvent(const char *event, const char *jsonData,
 
 bool SocketIoClient::sendRaw(const char *packet, char *error, int errorLen)
 {
+    return sendFrame(0x1, packet, strlen(packet), error, errorLen);
+}
+
+bool SocketIoClient::sendFrame(unsigned char opcode, const void *payload,
+                               size_t payloadLength, char *error, int errorLen)
+{
     if (!connected || !curl)
     {
         snprintf(error, errorLen, "Socket.IO is not connected");
         return false;
     }
-    const size_t payloadLength = strlen(packet);
     if (payloadLength > 1024)
     {
         snprintf(error, errorLen, "Socket.IO packet is too large");
         return false;
     }
     unsigned char frame[2 + 2 + 4 + 1024];
-    frame[0] = 0x81;
+    frame[0] = 0x80 | (opcode & 0x0f);
     size_t headerLength = 2;
     if (payloadLength <= 125)
     {
@@ -330,17 +341,29 @@ bool SocketIoClient::sendRaw(const char *packet, char *error, int errorLen)
     }
     unsigned char mask[4] = {0x53, 0x6c, 0x69, 0x64};
     memcpy(frame + headerLength, mask, sizeof(mask));
+    const unsigned char *bytes = (const unsigned char *)payload;
     for (size_t i = 0; i < payloadLength; ++i)
-        frame[headerLength + 4 + i] = (unsigned char)packet[i] ^ mask[i % 4];
+        frame[headerLength + 4 + i] = bytes[i] ^ mask[i % 4];
 
-    size_t sent = 0;
     const size_t frameLength = headerLength + 4 + payloadLength;
-    CURLcode result = curl_easy_send(curl, frame, frameLength, &sent);
-    if (result != CURLE_OK || sent != frameLength)
+    size_t offset = 0;
+    while (offset < frameLength)
     {
-        snprintf(error, errorLen, "Socket.IO send failed (%d): %s",
-                 (int)result, curl_easy_strerror(result));
-        return false;
+        size_t sent = 0;
+        CURLcode result = curl_easy_send(curl, frame + offset,
+                                         frameLength - offset, &sent);
+        if (result == CURLE_AGAIN)
+        {
+            svcSleepThread(CPU_TICKS_PER_MSEC * 2);
+            continue;
+        }
+        if (result != CURLE_OK || sent == 0)
+        {
+            snprintf(error, errorLen, "Socket.IO send failed (%d): %s",
+                     (int)result, curl_easy_strerror(result));
+            return false;
+        }
+        offset += sent;
     }
     return true;
 }
@@ -393,12 +416,14 @@ bool SocketIoClient::receive(char *out, int outLen, char *error, int errorLen)
     }
     if (opcode == 0x9)
     {
-        unsigned char pong[2 + 125];
-        pong[0] = 0x8a;
-        pong[1] = (unsigned char)payloadLength;
-        memcpy(pong + 2, receiveBuffer + headerLength, payloadLength);
-        size_t pongSent = 0;
-        curl_easy_send(curl, pong, payloadLength + 2, &pongSent);
+        char pongError[128] = {};
+        if (!sendFrame(0xA, receiveBuffer + headerLength, payloadLength,
+                       pongError, sizeof(pongError)))
+        {
+            snprintf(error, errorLen, "%s", pongError);
+            connected = false;
+            return false;
+        }
     }
     else if (opcode == 0x1)
     {

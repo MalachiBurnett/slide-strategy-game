@@ -394,6 +394,7 @@ int main()
     Result socResult = socInit(socBuf, SOC_BUF_SIZE);
     printf("[soc] socInit result: 0x%08lX\n", socResult);
 
+
     // curl global init
     curl_global_init(CURL_GLOBAL_ALL);
 
@@ -444,6 +445,7 @@ int main()
     int variant = 0;
     bool gameActive = false;
     bool onlineGame = false;
+    bool pollingMode = true;
     bool queueing = false;
     bool socketAttempted = false;
     u64 nextSocketRetryTick = 0;
@@ -456,6 +458,9 @@ int main()
     SocketIoClient socket;
     char socketError[192] = {};
     char socketPacket[4096] = {};
+    char pollingGameId[64] = {};
+    u64 lastPollingTick = 0;
+    constexpr u64 POLLING_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 1000;
 
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -582,7 +587,7 @@ main_loop:
         circlePosition circle;
         hidCircleRead(&circle);
 
-        if (state == AppState::LOGGED_IN && !socketAttempted &&
+        if (state == AppState::LOGGED_IN && !pollingMode && !socketAttempted &&
             (!queueing || svcGetSystemTick() >= nextSocketRetryTick))
         {
             socketAttempted = true;
@@ -720,6 +725,57 @@ main_loop:
             }
         }
 
+        if (pollingMode && state == AppState::LOGGED_IN &&
+            (queueing || onlineGame) && svcGetSystemTick() - lastPollingTick >= POLLING_INTERVAL_TICKS)
+        {
+            lastPollingTick = svcGetSystemTick();
+            char pollJson[96];
+            snprintf(pollJson, sizeof(pollJson), "{\"authCode\":\"%s\"}", savedAuthCode);
+            CurlBuf response = allocBuf();
+            CURLcode pollCurl = CURLE_OK;
+            char pollError[CURL_ERROR_SIZE] = {};
+            long pollHttp = httpPost("/api/3ds/status", pollJson, response, pollCurl, pollError);
+            if (pollHttp == 200 && response.data)
+            {
+                char pollStatus[24] = {};
+                jsonExtract(response.data, "status", pollStatus, sizeof(pollStatus));
+                if (strcmp(pollStatus, "matched") == 0)
+                {
+                    char color[4] = "W";
+                    char turn[4] = "W";
+                    jsonExtract(response.data, "gameId", pollingGameId, sizeof(pollingGameId));
+                    jsonExtract(response.data, "color", color, sizeof(color));
+                    jsonExtract(response.data, "turn", turn, sizeof(turn));
+                    if (parseBoard(response.data, game.board))
+                    {
+                        game.player = color[0] == 'B' ? 'B' : 'W';
+                        game.turn = turn[0] == 'B' ? 'B' : 'W';
+                        game.selectedRow = game.selectedCol = -1;
+                        game.targetRow = game.targetCol = -1;
+                        game.cursorRow = game.cursorCol = 0;
+                        game.pieceSelected = false;
+                        game.confirmMove = false;
+                        game.statusMsg = game.turn == game.player ? "Choose a piece to move" : "Waiting for opponent";
+                        queueing = false;
+                        onlineGame = true;
+                        gameActive = true;
+                        lobbyPage = LobbyPage::HOME;
+                    }
+                }
+                else if (strcmp(pollStatus, "idle") == 0 && onlineGame)
+                {
+                    game.statusMsg = "Game ended or opponent disconnected";
+                    onlineGame = false;
+                }
+            }
+            else if (pollHttp != 409)
+            {
+                snprintf(statusMsg, sizeof(statusMsg), "Polling failed (%ld): %s", pollHttp,
+                         pollError[0] ? pollError : "server unavailable");
+            }
+            freeBuf(response);
+        }
+
         int navDirection = 0;
         if (kDown & (KEY_DUP | KEY_DLEFT)) navDirection = -1;
         else if (kDown & (KEY_DDOWN | KEY_DRIGHT)) navDirection = 1;
@@ -817,16 +873,21 @@ main_loop:
                 if (onlineGame)
                 {
                     char moveJson[192];
-                    char sendError[192] = {};
                     snprintf(moveJson, sizeof(moveJson),
-                             "{\"gameId\":\"%s\",\"userId\":%d,\"from\":{\"r\":%d,\"c\":%d},\"to\":{\"r\":%d,\"c\":%d}}",
-                             activeGameId, userId, game.selectedRow, game.selectedCol,
+                             "{\"authCode\":\"%s\",\"gameId\":\"%s\",\"from\":{\"r\":%d,\"c\":%d},\"to\":{\"r\":%d,\"c\":%d}}",
+                             savedAuthCode, pollingGameId, game.selectedRow, game.selectedCol,
                              game.targetRow, game.targetCol);
-                    if (!socket.sendEvent("make_move", moveJson, sendError, sizeof(sendError)))
+                    CurlBuf moveResponse = allocBuf();
+                    CURLcode moveCurl = CURLE_OK;
+                    char moveError[CURL_ERROR_SIZE] = {};
+                    long moveHttp = httpPost("/api/3ds/move", moveJson, moveResponse, moveCurl, moveError);
+                    if (moveHttp != 200)
                     {
-                        snprintf(statusMsg, sizeof(statusMsg), "%s", sendError);
-                        state = AppState::ERROR_STATE;
-                        gameActive = false;
+                        char serverError[160] = {};
+                        jsonExtract(moveResponse.data, "error", serverError, sizeof(serverError));
+                        snprintf(statusMsg, sizeof(statusMsg), "%s", serverError[0] ? serverError :
+                                 (moveError[0] ? moveError : "Move failed"));
+                        game.confirmMove = false;
                     }
                     else
                     {
@@ -834,6 +895,7 @@ main_loop:
                         game.pieceSelected = false;
                         game.statusMsg = "Move sent. Waiting for server";
                     }
+                    freeBuf(moveResponse);
                 }
                 else
                     applyGameMove(game);
@@ -925,10 +987,13 @@ main_loop:
                 }
                 else if (lobbyPage == LobbyPage::QUEUE && buttonHit(cancelQueue, touch.px, touch.py))
                 {
-                    char leaveJson[48];
-                    snprintf(leaveJson, sizeof(leaveJson), "{\"userId\":%d}", userId);
-                    char leaveError[192] = {};
-                    socket.sendEvent("leave_queue", leaveJson, leaveError, sizeof(leaveError));
+                    char leaveJson[96];
+                    snprintf(leaveJson, sizeof(leaveJson), "{\"authCode\":\"%s\"}", savedAuthCode);
+                    CurlBuf leaveResponse = allocBuf();
+                    CURLcode leaveCurl = CURLE_OK;
+                    char leaveError[CURL_ERROR_SIZE] = {};
+                    httpPost("/api/3ds/leave", leaveJson, leaveResponse, leaveCurl, leaveError);
+                    freeBuf(leaveResponse);
                     queueing = false;
                     lobbyPage = LobbyPage::HOME;
                     statusMsg[0] = 0;
@@ -974,18 +1039,21 @@ main_loop:
                         onlineGame = false;
                         gameActive = true;
                     }
-                    else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS && socket.isConnected())
+                    else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS && pollingMode)
                     {
                         static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
                         char queueJson[160];
-                        char sendError[192] = {};
                         snprintf(queueJson, sizeof(queueJson),
-                                 "{\"userId\":%d,\"elo\":%d,\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
-                                 userId, atoi(elo), queueTimes[timeControl],
+                                 "{\"authCode\":\"%s\",\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
+                                 savedAuthCode, queueTimes[timeControl],
                                  variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
                                  variant == 2 ? "random_setup" : "schizophrenic",
                                  isRated ? "true" : "false");
-                        if (socket.sendEvent("join_queue", queueJson, sendError, sizeof(sendError)))
+                        CurlBuf queueResponse = allocBuf();
+                        CURLcode queueCurl = CURLE_OK;
+                        char queueCurlError[CURL_ERROR_SIZE] = {};
+                        long queueHttp = httpPost("/api/3ds/queue", queueJson, queueResponse, queueCurl, queueCurlError);
+                        if (queueHttp == 200)
                         {
                             static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
                             snprintf(queuedTimeControl, sizeof(queuedTimeControl), "%s", queueTimes[timeControl]);
@@ -1000,9 +1068,11 @@ main_loop:
                         }
                         else
                         {
-                            snprintf(statusMsg, sizeof(statusMsg), "%s", sendError);
+                            snprintf(statusMsg, sizeof(statusMsg), "Queue failed (%ld): %s", queueHttp,
+                                     queueCurlError[0] ? queueCurlError : "server unavailable");
                             state = AppState::ERROR_STATE;
                         }
+                        freeBuf(queueResponse);
                     }
                     else
                         snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Settings saved", username, elo);
@@ -1102,7 +1172,7 @@ main_loop:
                     userId = atoi(idValue);
                     snprintf(username,  sizeof(username),  "%s", uname);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
-                    if (ac[0]) saveAuthCode(ac);
+                    if (ac[0]) { saveAuthCode(ac); snprintf(savedAuthCode, sizeof(savedAuthCode), "%s", ac); }
                     state = AppState::LOGGED_IN;
                 }
                 else
@@ -1154,7 +1224,7 @@ main_loop:
 
                         snprintf(username, sizeof(username), "%s", uname);
                         userId = atoi(idValue);
-                        if (ac[0]) saveAuthCode(ac);
+                        if (ac[0]) { saveAuthCode(ac); snprintf(savedAuthCode, sizeof(savedAuthCode), "%s", ac); }
 
                         state = AppState::LOGGED_IN;
                         snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", username, elo);
