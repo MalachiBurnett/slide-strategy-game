@@ -138,6 +138,19 @@ void drawTopScreen(uint8_t *fb, AppState state,
             return;
         }
 
+        if (lobbyPage == LobbyPage::SPECTATE_COMING)
+        {
+            fillRect(fb, TOP_W, TOP_H, 0, 0, TOP_W, 25, C_PRIMARY);
+            drawText(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
+            drawText(fb, TOP_W, TOP_H, 250, 8, "SPECTATE", 1, C_PRIMARY_TXT);
+            drawText(fb, TOP_W, TOP_H, (TOP_W - 12 * 8) / 2, 70, "COMING SOON", 3, C_PRIMARY);
+            drawTextWrapped(fb, TOP_W, TOP_H, 12, 128, TOP_W - 24,
+                            "Spectating other players will be available soon.", 1, C_ACCENT);
+            if (statusMsg && statusMsg[0])
+                drawTextWrapped(fb, TOP_W, TOP_H, 12, 196, TOP_W - 24, statusMsg, 1, C_PRIMARY);
+            return;
+        }
+
         static const char *timeLabels[] = {"15s + 3s", "1 min", "3 min + 2s"};
         static const char *variantLabels[] = {"Classic", "Fog of War", "Random Setup", "Schizophrenic"};
         const char *safeUser = (username && username[0]) ? username : "Player";
@@ -283,6 +296,15 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 108, BOT_W - 16,
                             "Waiting for a friend to join. Keep this screen open.", 1, C_TEXT);
             drawButton(fb, cancelPrivate, pressed(cancelPrivate), 1, focusVisible && focusIndex == 0);
+        }
+        else if (lobbyPage == LobbyPage::SPECTATE_COMING)
+        {
+            static const Button backSpectate = {8, 172, 148, 26, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
+            drawText(fb, BOT_W, BOT_H, 8, 38, "SPECTATE", 1, C_ACCENT);
+            drawTextWrapped(fb, BOT_W, BOT_H, 8, 58, BOT_W - 16,
+                            "Spectating is not available yet.\nYou can watch matches from the website instead.", 1, C_TEXT);
+            drawButton(fb, backSpectate, pressed(backSpectate), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, btnQuit, pressed(btnQuit), 1, false);
         }
         else if (lobbyPage == LobbyPage::QUEUE)
         {

@@ -33,6 +33,7 @@ enum class LobbyPage
     PRIVATE_WAIT,
     LOCAL_SETTINGS,
     QUEUE,
+    SPECTATE_COMING,
 };
 
 // ---------------------------------------------------------------------------

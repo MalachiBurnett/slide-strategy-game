@@ -135,6 +135,7 @@ static int focusCount(AppState state, LobbyPage page)
     if (page == LobbyPage::PRIVATE_CHOICE) return 4;
     if (page == LobbyPage::PRIVATE_JOIN) return 3;
     if (page == LobbyPage::LOCAL_SETTINGS) return 3;
+    if (page == LobbyPage::SPECTATE_COMING) return 1;
     return 6;
 }
 
@@ -184,6 +185,11 @@ static int focusPoints(AppState state, LobbyPage page, int outX[6], int outY[6])
         else if (page == LobbyPage::PRIVATE_WAIT)
         {
             static const int p[][2] = {{BOT_W / 2, 175}};
+            pts = p; n = 1;
+        }
+        else if (page == LobbyPage::SPECTATE_COMING)
+        {
+            static const int p[][2] = {{82, 185}};
             pts = p; n = 1;
         }
         else
@@ -246,6 +252,7 @@ static const FocusLinks &focusLinksFor(AppState state, LobbyPage page, int focus
     if (page == LobbyPage::PRIVATE_CHOICE) return PCHOICE[focus < 0 ? 0 : (focus > 3 ? 3 : focus)];
     if (page == LobbyPage::PRIVATE_JOIN) return PJOIN[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
     if (page == LobbyPage::LOCAL_SETTINGS) return LOCALSET[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
+    if (page == LobbyPage::SPECTATE_COMING) return QUEUE_ONE[0];
     return SETTINGS[focus < 0 ? 0 : (focus > 5 ? 5 : focus)];
 }
 
@@ -779,7 +786,7 @@ main_loop:
         }
 
         if (state == AppState::LOGGED_IN &&
-            (queueing || (onlineGame && game.turn != game.player)) &&
+            (queueing || (onlineGame && !game.gameOver && !game.confirmMove)) &&
             svcGetSystemTick() - lastPollingTick >= POLLING_INTERVAL_TICKS)
         {
             lastPollingTick = svcGetSystemTick();
@@ -797,22 +804,33 @@ main_loop:
                 {
                     char color[4] = "W";
                     char turn[4] = "W";
+                    char prevGameId[48] = {};
+                    snprintf(prevGameId, sizeof(prevGameId), "%s", pollingGameId);
                     jsonExtract(response.data, "gameId", pollingGameId, sizeof(pollingGameId));
                     jsonExtract(response.data, "color", color, sizeof(color));
                     jsonExtract(response.data, "turn", turn, sizeof(turn));
                     if (parseBoard(response.data, game.board))
                     {
+                        const bool wasOurTurn = game.turn == game.player;
                         game.player = color[0] == 'B' ? 'B' : 'W';
                         game.turn = turn[0] == 'B' ? 'B' : 'W';
-                        game.selectedRow = game.selectedCol = -1;
-                        game.targetRow = game.targetCol = -1;
-                        game.cursorRow = game.cursorCol = 0;
-                        game.pieceSelected = false;
-                        game.confirmMove = false;
+                        const bool nowOurTurn = game.turn == game.player;
+                        // Only reset transient selection state when the game state
+                        // changed (opponent moved) or we just joined a new game.
+                        if (!wasOurTurn || !nowOurTurn || strcmp(prevGameId, pollingGameId) != 0)
+                        {
+                            game.selectedRow = game.selectedCol = -1;
+                            game.targetRow = game.targetCol = -1;
+                            game.cursorRow = game.cursorCol = 0;
+                            game.pieceSelected = false;
+                            game.confirmMove = false;
+                            game.flashTimer = 0;
+                            snprintf(statusMsg, sizeof(statusMsg),
+                                     game.turn == game.player ? "Choose a piece to move" : "Waiting for opponent");
+                            game.statusMsg = statusMsg;
+                        }
                         game.gameOver = false;
                         game.winner = 0;
-                        game.flashTimer = 0;
-                        game.statusMsg = game.turn == game.player ? "Choose a piece to move" : "Waiting for opponent";
                         game.isOnline = true;
                         queueing = false;
                         onlineGame = true;
@@ -1129,7 +1147,7 @@ main_loop:
                         lobbyPage = LobbyPage::LOCAL_SETTINGS;
                         focusIndex = 0;
                     }
-                    else if (buttonHit(spectate, touch.px, touch.py)) snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Spectate menu", username, elo);
+                    else if (buttonHit(spectate, touch.px, touch.py)) { lobbyPage = LobbyPage::SPECTATE_COMING; focusIndex = 0; statusMsg[0] = 0; }
                 }
                 else if (buttonHit(back, touch.px, touch.py))
                 {
@@ -1183,6 +1201,14 @@ main_loop:
                     {
                         variant = (variant + 1) % 4;
                         snprintf(statusMsg, sizeof(statusMsg), "Local variant changed");
+                    }
+                    else if (buttonHit(continueButton, touch.px, touch.py))
+                    {
+                        resetGame(game, variant);
+                        onlineGame = false;
+                        queueing = false;
+                        gameActive = true;
+                        lobbyPage = LobbyPage::HOME;
                     }
                 }
                 else if ((lobbyPage == LobbyPage::PUBLIC_SETTINGS || lobbyPage == LobbyPage::PRIVATE_CREATE) &&
@@ -1291,13 +1317,7 @@ main_loop:
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py))
                 {
-                    if (lobbyPage == LobbyPage::LOCAL_SETTINGS)
-                    {
-                        resetGame(game, variant);
-                        onlineGame = false;
-                        gameActive = true;
-                    }
-                    else if (lobbyPage == LobbyPage::PUBLIC_SETTINGS)
+                    if (lobbyPage == LobbyPage::PUBLIC_SETTINGS)
                     {
                         static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
                         snprintf(statusMsg, sizeof(statusMsg), "Joining matchmaking...");
