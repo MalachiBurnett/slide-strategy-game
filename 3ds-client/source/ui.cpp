@@ -68,7 +68,7 @@ void drawTopScreen(uint8_t *fb, AppState state,
                    bool isRated, int timeControl, int variant,
                    int focusIndex,
                    const uint8_t *qrData, bool qrReady,
-                   const char *statusMsg)
+                   const char *statusMsg, const char *privateCode)
 {
     clearScreen(fb, TOP_W, TOP_H, C_BG);
 
@@ -122,6 +122,22 @@ void drawTopScreen(uint8_t *fb, AppState state,
     }
     else if (state == AppState::LOGGED_IN)
     {
+        if (lobbyPage == LobbyPage::PRIVATE_WAIT)
+        {
+            fillRect(fb, TOP_W, TOP_H, 0, 0, TOP_W, 25, C_PRIMARY);
+            drawText(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
+            drawText(fb, TOP_W, TOP_H, 250, 8, "PRIVATE ROOM", 1, C_PRIMARY_TXT);
+            drawText(fb, TOP_W, TOP_H, (TOP_W - 12 * 8) / 2, 56, "ROOM CODE", 1, C_ACCENT);
+            int codeW = (int)strlen(privateCode ? privateCode : "") * 24;
+            drawText(fb, TOP_W, TOP_H, (TOP_W - codeW) / 2, 78, privateCode ? privateCode : "", 3, C_PRIMARY);
+            drawText(fb, TOP_W, TOP_H, (TOP_W - 25 * 8) / 2, 118, "WAITING FOR AN OPPONENT", 1, C_ACCENT);
+            drawTextWrapped(fb, TOP_W, TOP_H, 12, 144, TOP_W - 24,
+                            "Share this code so a friend can join your room.", 1, C_TEXT);
+            if (statusMsg && statusMsg[0])
+                drawTextWrapped(fb, TOP_W, TOP_H, 12, 196, TOP_W - 24, statusMsg, 1, C_PRIMARY);
+            return;
+        }
+
         static const char *timeLabels[] = {"15s + 3s", "1 min", "3 min + 2s"};
         static const char *variantLabels[] = {"Classic", "Fog of War", "Random Setup", "Schizophrenic"};
         const char *safeUser = (username && username[0]) ? username : "Player";
@@ -175,7 +191,8 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       bool pressedOffline, bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,
                       const Button &btnQuit,
-                      int touchX, int touchY, bool touchActive)
+                      int touchX, int touchY, bool touchActive,
+                      const char *privateCode)
 {
     clearScreen(fb, BOT_W, BOT_H, C_BG);
 
@@ -256,6 +273,16 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             if (focusVisible && focusIndex == 0) drawRoundRect(fb, BOT_W, BOT_H, 8, 44, BOT_W - 16, 20, 5, 3, C_SUCCESS);
             drawButton(fb, startLocal, pressed(startLocal), 1, focusVisible && focusIndex == 1);
             drawButton(fb, backLocal, pressed(backLocal), 1, focusVisible && focusIndex == 2);
+        }
+        else if (lobbyPage == LobbyPage::PRIVATE_WAIT)
+        {
+            static const Button cancelPrivate = {64, 160, 192, 30, "Cancel room", C_BG_DARK, C_TEXT, C_ACCENT};
+            drawText(fb, BOT_W, BOT_H, 8, 38, "PRIVATE ROOM", 1, C_ACCENT);
+            drawText(fb, BOT_W, BOT_H, 8, 58, "Your room code:", 1, C_TEXT);
+            drawText(fb, BOT_W, BOT_H, 8, 76, privateCode ? privateCode : "", 2, C_PRIMARY);
+            drawTextWrapped(fb, BOT_W, BOT_H, 8, 108, BOT_W - 16,
+                            "Waiting for a friend to join. Keep this screen open.", 1, C_TEXT);
+            drawButton(fb, cancelPrivate, pressed(cancelPrivate), 1, focusVisible && focusIndex == 0);
         }
         else if (lobbyPage == LobbyPage::QUEUE)
         {

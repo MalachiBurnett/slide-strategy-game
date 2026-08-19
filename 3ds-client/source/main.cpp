@@ -130,6 +130,7 @@ static int focusCount(AppState state, LobbyPage page)
     if (state == AppState::INIT) return 1;
     if (state != AppState::LOGGED_IN) return 0;
     if (page == LobbyPage::QUEUE) return 1;
+    if (page == LobbyPage::PRIVATE_WAIT) return 1;
     if (page == LobbyPage::HOME) return 6;
     if (page == LobbyPage::PRIVATE_CHOICE) return 4;
     if (page == LobbyPage::PRIVATE_JOIN) return 3;
@@ -176,6 +177,11 @@ static int focusPoints(AppState state, LobbyPage page, int outX[6], int outY[6])
             pts = p; n = 3;
         }
         else if (page == LobbyPage::QUEUE)
+        {
+            static const int p[][2] = {{BOT_W / 2, 175}};
+            pts = p; n = 1;
+        }
+        else if (page == LobbyPage::PRIVATE_WAIT)
         {
             static const int p[][2] = {{BOT_W / 2, 175}};
             pts = p; n = 1;
@@ -235,6 +241,7 @@ static const FocusLinks &focusLinksFor(AppState state, LobbyPage page, int focus
     if (state == AppState::INIT) return INIT_ONE[0];
     if (state != AppState::LOGGED_IN) return INIT_ONE[0];
     if (page == LobbyPage::QUEUE) return QUEUE_ONE[0];
+    if (page == LobbyPage::PRIVATE_WAIT) return QUEUE_ONE[0];
     if (page == LobbyPage::HOME) return HOME[focus < 0 ? 0 : (focus > 5 ? 5 : focus)];
     if (page == LobbyPage::PRIVATE_CHOICE) return PCHOICE[focus < 0 ? 0 : (focus > 3 ? 3 : focus)];
     if (page == LobbyPage::PRIVATE_JOIN) return PJOIN[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
@@ -267,7 +274,8 @@ static void goBack(AppState state, LobbyPage &page, char *statusMsg)
 {
     if (state == AppState::LOGGED_IN)
     {
-        if (page == LobbyPage::PRIVATE_CREATE || page == LobbyPage::PRIVATE_JOIN)
+        if (page == LobbyPage::PRIVATE_CREATE || page == LobbyPage::PRIVATE_JOIN ||
+            page == LobbyPage::PRIVATE_WAIT)
             page = LobbyPage::PRIVATE_CHOICE;
         else
             page = LobbyPage::HOME;
@@ -536,6 +544,7 @@ int main()
     char username[64]   = {};
     char elo[16]        = "600";
     char joinCode[32]   = {};
+    char privateCode[16] = {};
     LobbyPage lobbyPage = LobbyPage::HOME;
     int focusIndex = 0;
     bool focusVisible = false;
@@ -549,11 +558,14 @@ int main()
     resetGame(game);
     char pollingGameId[64] = {};
     u64 lastPollingTick = 0;
-    constexpr u64 POLLING_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 1000;
+    constexpr u64 POLLING_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 500;
     bool sendPending = false;
     bool focusPressActive = false;
     int  focusPressX = 0;
     int  focusPressY = 0;
+    int  lastCircleDir = -1;
+    u64  lastGameRepeatTick = 0;
+    constexpr u64 GAME_REPEAT_TICKS = CPU_TICKS_PER_MSEC * 240;
 
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
@@ -584,10 +596,10 @@ int main()
         }
         else
         {
-            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg);
+            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg, privateCode);
             drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
                              pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
-                             BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive);
+                             BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive, privateCode);
         }
 
         gfxFlushBuffers();
@@ -608,15 +620,15 @@ int main()
             snprintf(statusMsg, sizeof(statusMsg),
                      "SOC init failed (0x%08lX) - check WiFi", socResult);
             state = AppState::ERROR_STATE;
-            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, statusMsg);
-            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, 0, 0, false);
+            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, statusMsg, privateCode);
+            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, 0, 0, false, privateCode);
             gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
             // Skip network steps; fall straight through to the main loop
             goto main_loop;
         }
 
-        drawTopScreen   (topFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, "Checking saved login...");
-        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, 0, 0, false);
+        drawTopScreen   (topFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, "Checking saved login...", privateCode);
+        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, 0, 0, false, privateCode);
         gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
     }
 
@@ -832,6 +844,10 @@ main_loop:
                         lobbyPage = LobbyPage::HOME;
                     }
                 }
+                else if (strcmp(pollStatus, "waiting") == 0 && queueing)
+                {
+                    // Private room still open — keep polling for the joiner.
+                }
                 else if (strcmp(pollStatus, "idle") == 0 && onlineGame)
                 {
                     game.statusMsg = "Game ended or opponent disconnected";
@@ -877,6 +893,20 @@ main_loop:
 
         if ((kDown & KEY_B) && state == AppState::LOGGED_IN && lobbyPage != LobbyPage::HOME)
         {
+            if (lobbyPage == LobbyPage::PRIVATE_WAIT)
+            {
+                snprintf(statusMsg, sizeof(statusMsg), "Leaving room...");
+                renderFrame(touch.px, touch.py, touchHeld);
+                char cancelJson[96];
+                snprintf(cancelJson, sizeof(cancelJson), "{\"authCode\":\"%s\"}", savedAuthCode);
+                CurlBuf cancelResponse = allocBuf();
+                CURLcode cancelCurl = CURLE_OK;
+                char cancelError[CURL_ERROR_SIZE] = {};
+                httpPost("/api/3ds/private/cancel", cancelJson, cancelResponse, cancelCurl, cancelError);
+                freeBuf(cancelResponse);
+                queueing = false;
+                privateCode[0] = 0;
+            }
             goBack(state, lobbyPage, statusMsg);
             focusIndex = 0;
         }
@@ -972,18 +1002,27 @@ main_loop:
                 }
             }
 
+            int circleDir = -1;
+            if (circle.dx < -120) circleDir = 0;
+            else if (circle.dy < -120) circleDir = 1;
+            else if (circle.dx > 120) circleDir = 2;
+            else if (circle.dy > 120) circleDir = 3;
+
             int gameDirection = -1;
             if (kDown & KEY_DLEFT) gameDirection = 0;
             else if (kDown & KEY_DDOWN) gameDirection = 1;
             else if (kDown & KEY_DRIGHT) gameDirection = 2;
             else if (kDown & KEY_DUP) gameDirection = 3;
-            else if (circle.dx < -120) gameDirection = 0;
-            else if (circle.dy < -120) gameDirection = 1;
-            else if (circle.dx > 120) gameDirection = 2;
-            else if (circle.dy > 120) gameDirection = 3;
+            else if (circleDir >= 0 && circleDir != lastCircleDir) gameDirection = circleDir;
+            else if (circleDir >= 0 && svcGetSystemTick() - lastGameRepeatTick >= GAME_REPEAT_TICKS) gameDirection = circleDir;
+
+            lastCircleDir = circleDir;
+
             if (gameDirection >= 0 && !game.confirmMove)
             {
-                if (!moveGameCursor(game, gameDirection))
+                if (moveGameCursor(game, gameDirection))
+                    lastGameRepeatTick = svcGetSystemTick();
+                else
                     game.flashTimer = 6;
             }
 
@@ -1078,6 +1117,7 @@ main_loop:
                 static const Button continueButton = {164, 172, 148, 26, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
                 static const Button localVariant = {8, 44, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
                 static const Button cancelQueue = {64, 160, 192, 30, "Cancel queue", C_BG_DARK, C_TEXT, C_ACCENT};
+                static const Button cancelPrivate = {64, 160, 192, 30, "Cancel room", C_BG_DARK, C_TEXT, C_ACCENT};
 
                 const LobbyPage pageBefore = lobbyPage;
                 if (lobbyPage == LobbyPage::HOME)
@@ -1120,6 +1160,23 @@ main_loop:
                     statusMsg[0] = 0;
                     focusIndex = 0;
                 }
+                else if (lobbyPage == LobbyPage::PRIVATE_WAIT && buttonHit(cancelPrivate, touch.px, touch.py))
+                {
+                    snprintf(statusMsg, sizeof(statusMsg), "Leaving room...");
+                    renderFrame(touch.px, touch.py, touchHeld);
+                    char cancelJson[96];
+                    snprintf(cancelJson, sizeof(cancelJson), "{\"authCode\":\"%s\"}", savedAuthCode);
+                    CurlBuf cancelResponse = allocBuf();
+                    CURLcode cancelCurl = CURLE_OK;
+                    char cancelError[CURL_ERROR_SIZE] = {};
+                    httpPost("/api/3ds/private/cancel", cancelJson, cancelResponse, cancelCurl, cancelError);
+                    freeBuf(cancelResponse);
+                    queueing = false;
+                    privateCode[0] = 0;
+                    lobbyPage = LobbyPage::PRIVATE_CHOICE;
+                    statusMsg[0] = 0;
+                    focusIndex = 0;
+                }
                 else if (lobbyPage == LobbyPage::LOCAL_SETTINGS)
                 {
                     if (buttonHit(localVariant, touch.px, touch.py))
@@ -1149,8 +1206,88 @@ main_loop:
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_JOIN)
                 {
-                    showKeyboard("Join code", joinCode, sizeof(joinCode));
-                    snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Join code ready", username, elo);
+                    if (showKeyboard("Join code (e.g. APPLE123)", joinCode, sizeof(joinCode)))
+                    {
+                        snprintf(statusMsg, sizeof(statusMsg), "Joining room...");
+                        renderFrame(touch.px, touch.py, touchHeld);
+                        char joinJson[160];
+                        snprintf(joinJson, sizeof(joinJson), "{\"authCode\":\"%s\",\"code\":\"%s\"}", savedAuthCode, joinCode);
+                        CurlBuf joinResponse = allocBuf();
+                        CURLcode joinCurl = CURLE_OK;
+                        char joinError[CURL_ERROR_SIZE] = {};
+                        long joinHttp = httpPost("/api/3ds/private/join", joinJson, joinResponse, joinCurl, joinError);
+                        if (joinHttp == 200 && parseBoard(joinResponse.data, game.board))
+                        {
+                            jsonExtract(joinResponse.data, "gameId", pollingGameId, sizeof(pollingGameId));
+                            game.player = 'B';
+                            game.turn = 'W';
+                            game.selectedRow = game.selectedCol = -1;
+                            game.targetRow = game.targetCol = -1;
+                            game.cursorRow = game.cursorCol = 0;
+                            game.pieceSelected = false;
+                            game.confirmMove = false;
+                            game.gameOver = false;
+                            game.winner = 0;
+                            game.flashTimer = 0;
+                            game.isOnline = true;
+                            game.statusMsg = "Private match started";
+                            onlineGame = true;
+                            gameActive = true;
+                            queueing = false;
+                            lobbyPage = LobbyPage::HOME;
+                            privateCode[0] = 0;
+                            joinCode[0] = 0;
+                            focusIndex = 0;
+                        }
+                        else
+                        {
+                            char errMsg[128] = {};
+                            if (!jsonExtract(joinResponse.data, "error", errMsg, sizeof(errMsg)))
+                                snprintf(errMsg, sizeof(errMsg), "Join failed (%ld): %s", joinHttp,
+                                         joinError[0] ? joinError : "server unavailable");
+                            snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
+                        }
+                        freeBuf(joinResponse);
+                    }
+                }
+                else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_CREATE)
+                {
+                    static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
+                    snprintf(statusMsg, sizeof(statusMsg), "Creating room...");
+                    renderFrame(touch.px, touch.py, touchHeld);
+                    char createJson[160];
+                    snprintf(createJson, sizeof(createJson),
+                             "{\"authCode\":\"%s\",\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
+                             savedAuthCode, queueTimes[timeControl],
+                             variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
+                             variant == 2 ? "random_setup" : "schizophrenic",
+                             isRated ? "true" : "false");
+                    CurlBuf createResponse = allocBuf();
+                    CURLcode createCurl = CURLE_OK;
+                    char createCurlError[CURL_ERROR_SIZE] = {};
+                    long createHttp = httpPost("/api/3ds/private/create", createJson, createResponse, createCurl, createCurlError);
+                    if (createHttp == 200)
+                    {
+                        char codeVal[16] = {};
+                        char gameIdVal[64] = {};
+                        jsonExtract(createResponse.data, "code", codeVal, sizeof(codeVal));
+                        jsonExtract(createResponse.data, "gameId", gameIdVal, sizeof(gameIdVal));
+                        snprintf(privateCode, sizeof(privateCode), "%s", codeVal);
+                        snprintf(pollingGameId, sizeof(pollingGameId), "%s", gameIdVal);
+                        queueing = true;
+                        lobbyPage = LobbyPage::PRIVATE_WAIT;
+                        focusIndex = 0;
+                        snprintf(statusMsg, sizeof(statusMsg), "Room created — share code %s", codeVal);
+                    }
+                    else
+                    {
+                        char errMsg[128] = {};
+                        if (!jsonExtract(createResponse.data, "error", errMsg, sizeof(errMsg)))
+                            snprintf(errMsg, sizeof(errMsg), "Create failed (%ld): %s", createHttp,
+                                     createCurlError[0] ? createCurlError : "server unavailable");
+                        snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
+                    }
+                    freeBuf(createResponse);
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py))
                 {

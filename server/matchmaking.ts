@@ -89,12 +89,16 @@ export function setupMatchmaking(io: Server, app?: express.Application) {
         [user.id, user.id], (err, game: any) => {
           if (err) return res.status(500).json({ error: "Failed to read game status" });
           if (!game) {
-            db.get("SELECT * FROM games WHERE status = 'finished' AND (player_w = ? OR player_b = ?) ORDER BY last_move_time DESC LIMIT 1",
-              [user.id, user.id], (endErr, finished: any) => {
-                if (endErr || !finished) return res.json({ status: "idle" });
-                const endColor = Number(finished.player_w) === Number(user.id) ? "W" : "B";
-                res.json({ status: "finished", gameId: finished.id, color: endColor,
-                  winner: finished.winner, board: JSON.parse(finished.board) });
+            db.get("SELECT * FROM games WHERE status = 'waiting' AND is_private = 1 AND player_w = ? LIMIT 1",
+              [user.id], (waitErr, waiting: any) => {
+                if (waiting) return res.json({ status: "waiting", gameId: waiting.id, code: waiting.code });
+                db.get("SELECT * FROM games WHERE status = 'finished' AND (player_w = ? OR player_b = ?) ORDER BY last_move_time DESC LIMIT 1",
+                  [user.id, user.id], (endErr, finished: any) => {
+                    if (endErr || !finished) return res.json({ status: "idle" });
+                    const endColor = Number(finished.player_w) === Number(user.id) ? "W" : "B";
+                    res.json({ status: "finished", gameId: finished.id, color: endColor,
+                      winner: finished.winner, board: JSON.parse(finished.board) });
+                  });
               });
             return;
           }
@@ -162,6 +166,82 @@ export function setupMatchmaking(io: Server, app?: express.Application) {
         }
         handleGameEnd(io, gameId, null, 'forfeit', user.id);
         res.json({ success: true });
+      });
+    }));
+
+    // -------------------------------------------------------------------------
+    // Private rooms over plain HTTP polling (no sockets on the 3DS client).
+    // -------------------------------------------------------------------------
+    const PRIVATE_WORDS = ["APPLE", "BREAD", "CHESS", "DREAM", "EAGLE", "FLAME", "GRAPE", "HOUSE", "IMAGE", "JOKER"];
+
+    app.post("/api/3ds/private/create", (req, res) => authenticate3ds(req, res, (user) => {
+      const { timeControl, variant, isRated } = req.body;
+      db.get("SELECT skin, is_guest FROM users WHERE id = ?", [user.id], (err, u: any) => {
+        if (err || !u) return res.status(400).json({ error: "User not found" });
+        if (u.is_guest && isRated) return res.status(400).json({ error: "Guest accounts can only play casual matches." });
+        const code = PRIVATE_WORDS[Math.floor(Math.random() * PRIVATE_WORDS.length)] + Math.floor(100 + Math.random() * 900);
+        const gameId = Math.random().toString(36).substring(7);
+        const variantS = variant || 'classic';
+        const board = JSON.stringify(generateBoard(variantS));
+        const skinW = u.skin || 'classic';
+        let initialTimer = 600;
+        let increment = 0;
+        if (timeControl === '1|0') initialTimer = 60;
+        else if (timeControl === '3|2') { initialTimer = 180; increment = 2; }
+        else if (timeControl === '0.25|3') { initialTimer = 15; increment = 3; }
+        db.run("INSERT INTO games (id, board, turn, player_w, status, is_private, code, timer_w, timer_b, increment, last_move_time, variant, skin_w, is_rated, start_board) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [gameId, board, 'W', user.id, 'waiting', true, code, initialTimer, initialTimer, increment, Date.now(), variantS, skinW, isRated ? 1 : 0, board], (insErr) => {
+            if (insErr) return res.status(500).json({ error: "Failed to create room" });
+            privateGames.set(code, gameId);
+            userToGame.set(user.id, gameId);
+            res.json({ success: true, code, gameId, color: 'W', timerW: initialTimer, timerB: initialTimer, variant: variantS, isRated: !!isRated });
+          });
+      });
+    }));
+
+    app.post("/api/3ds/private/join", (req, res) => authenticate3ds(req, res, (user) => {
+      const code = (req.body?.code || "").toString().trim().toUpperCase();
+      const gameId = privateGames.get(code);
+      if (!gameId) return res.status(404).json({ error: "Invalid code" });
+      db.get("SELECT * FROM games WHERE id = ?", [gameId], (err, game: any) => {
+        if (err || !game || game.status !== 'waiting') return res.status(409).json({ error: "Game full or not found" });
+        if (Number(game.player_w) === Number(user.id)) return res.status(409).json({ error: "You cannot join your own room" });
+        db.get("SELECT skin, username, is_guest FROM users WHERE id = ?", [user.id], (err2, userB: any) => {
+          if (err2 || !userB) return res.status(400).json({ error: "User not found" });
+          if (userB.is_guest && game.is_rated) return res.status(400).json({ error: "Guest accounts can only play casual matches." });
+          const skinB = userB.skin || 'classic';
+          db.run("UPDATE games SET player_b = ?, status = 'active', last_move_time = ?, skin_b = ? WHERE id = ?",
+            [user.id, Date.now(), skinB, gameId], (updErr) => {
+              if (updErr) return res.status(500).json({ error: "Failed to join room" });
+              userToGame.set(user.id, gameId);
+              userToGame.set(game.player_w, gameId);
+              activeTimers.set(gameId, {
+                timerW: game.timer_w,
+                timerB: game.timer_b,
+                turn: 'W',
+                increment: game.increment,
+                lastMoveTime: Date.now()
+              });
+              db.get("SELECT username FROM users WHERE id = ?", [game.player_w], (err3, userW: any) => {
+                res.json({
+                  success: true, gameId, color: 'B', opponentName: userW?.username,
+                  board: JSON.parse(game.board), turn: 'W', variant: game.variant,
+                  timerW: game.timer_w, timerB: game.timer_b, isRated: !!game.is_rated
+                });
+              });
+            });
+        });
+      });
+    }));
+
+    app.post("/api/3ds/private/cancel", (req, res) => authenticate3ds(req, res, (user) => {
+      db.get("SELECT * FROM games WHERE status = 'waiting' AND is_private = 1 AND player_w = ? LIMIT 1", [user.id], (err, game: any) => {
+        if (err || !game) return res.json({ success: true });
+        privateGames.delete(game.code);
+        userToGame.delete(user.id);
+        db.run("DELETE FROM games WHERE id = ?", [game.id], () => {
+          res.json({ success: true });
+        });
       });
     }));
   }

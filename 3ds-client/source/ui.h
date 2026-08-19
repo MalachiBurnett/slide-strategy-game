@@ -30,6 +30,7 @@ enum class LobbyPage
     PRIVATE_CHOICE,
     PRIVATE_CREATE,
     PRIVATE_JOIN,
+    PRIVATE_WAIT,
     LOCAL_SETTINGS,
     QUEUE,
 };
@@ -79,7 +80,7 @@ void drawTopScreen   (uint8_t *fb, AppState state,
                       bool isRated, int timeControl, int variant,
                       int focusIndex,
                       const uint8_t *qrData, bool qrReady,
-                      const char *statusMsg);
+                      const char *statusMsg, const char *privateCode);
 
 void drawBottomScreen(uint8_t *fb, AppState state,
                       LobbyPage lobbyPage,
@@ -90,7 +91,8 @@ void drawBottomScreen(uint8_t *fb, AppState state,
                       bool pressedOffline, bool pressedQuit, const Button &btnSignIn,
                       const Button &btnGuest, const Button &btnSignOut,
                       const Button &btnQuit,
-                      int touchX, int touchY, bool touchActive);
+                      int touchX, int touchY, bool touchActive,
+                      const char *privateCode);
 
 void drawGameTopScreen(uint8_t *fb, const GameUiState &game);
 void drawGameBottomScreen(uint8_t *fb, const GameUiState &game);
