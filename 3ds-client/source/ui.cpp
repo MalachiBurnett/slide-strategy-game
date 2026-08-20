@@ -45,18 +45,24 @@ void drawButton(uint8_t *fb, const Button &btn, bool pressed, int textScale,
 {
     Color bg   = pressed ? C_SUCCESS : btn.bgColor;
     Color text = pressed ? C_PRIMARY_TXT : btn.textColor;
-    int r = btn.h >= 30 ? 10 : 7;
-    fillRoundRect(fb, BOT_W, BOT_H, btn.x, btn.y, btn.w, btn.h, r, bg);
+    int r = btn.h >= 30 ? 12 : 8;
+
+    // Raised card when idle — a bottom accent strip, echoing the website's
+    // border-b-8 cards — and flush/flat when pressed, so the button reads
+    // as physically pushed in rather than just recolouring.
+    int accentPx = pressed ? 0 : (btn.h >= 30 ? 4 : 3);
+    fillRoundRectAccented(fb, BOT_W, BOT_H, btn.x, btn.y, btn.w, btn.h, r,
+                          bg, darken(bg, 0.35f), accentPx);
     if (!pressed)
         drawRoundRect(fb, BOT_W, BOT_H, btn.x, btn.y, btn.w, btn.h, r,
-                      focused ? 3 : 2, focused ? C_SUCCESS : btn.borderColor);
+                      focused ? 3 : 1, focused ? C_SUCCESS : btn.borderColor);
 
     int charW   = 8 * textScale;
     int textLen = (int)strlen(btn.label);
     int textW   = textLen * charW;
     int tx      = btn.x + (btn.w - textW) / 2;
-    int ty      = btn.y + (btn.h - 8 * textScale) / 2;
-    drawText(fb, BOT_W, BOT_H, tx, ty, btn.label, textScale, text);
+    int ty      = btn.y + (btn.h - accentPx - 8 * textScale) / 2;
+    drawTextBold(fb, BOT_W, BOT_H, tx, ty, btn.label, textScale, text);
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +82,7 @@ void drawTopScreen(uint8_t *fb, AppState state,
     {
         const Color white = {255, 255, 255};
         clearScreen(fb, TOP_W, TOP_H, {0, 0, 0});
-        drawText(fb, TOP_W, TOP_H, 12, 12, "SLIDE ERROR", 2, white);
+        drawTextBold(fb, TOP_W, TOP_H, 12, 12, "SLIDE ERROR", 2, white);
         if (statusMsg && statusMsg[0])
             drawTextWrapped(fb, TOP_W, TOP_H, 12, 42, TOP_W - 24, statusMsg, 1, white);
         return;
@@ -84,7 +90,7 @@ void drawTopScreen(uint8_t *fb, AppState state,
 
     // Title bar
     fillRect(fb, TOP_W, TOP_H, 0, 0, TOP_W, 24, C_PRIMARY);
-    drawText(fb, TOP_W, TOP_H, 8, 8, "Slide", 1, C_PRIMARY_TXT);
+    drawTextBold(fb, TOP_W, TOP_H, 8, 8, "Slide", 1, C_PRIMARY_TXT);
     drawText(fb, TOP_W, TOP_H, 204, 8, "Made by Wiizard Software", 1, C_PRIMARY_TXT);
 
     if (state == AppState::QR_LOGIN && qrReady)
@@ -125,11 +131,13 @@ void drawTopScreen(uint8_t *fb, AppState state,
         if (lobbyPage == LobbyPage::PRIVATE_WAIT)
         {
             fillRect(fb, TOP_W, TOP_H, 0, 0, TOP_W, 25, C_PRIMARY);
-            drawText(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
+            drawTextBold(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
             drawText(fb, TOP_W, TOP_H, 250, 8, "PRIVATE ROOM", 1, C_PRIMARY_TXT);
             drawText(fb, TOP_W, TOP_H, (TOP_W - 12 * 8) / 2, 56, "ROOM CODE", 1, C_ACCENT);
             int codeW = (int)strlen(privateCode ? privateCode : "") * 24;
-            drawText(fb, TOP_W, TOP_H, (TOP_W - codeW) / 2, 78, privateCode ? privateCode : "", 3, C_PRIMARY);
+            fillRoundRectAccented(fb, TOP_W, TOP_H, (TOP_W - codeW) / 2 - 16, 70, codeW + 32, 40, 10,
+                                  C_PRIMARY, darken(C_PRIMARY, 0.35f), 4);
+            drawTextBold(fb, TOP_W, TOP_H, (TOP_W - codeW) / 2, 78, privateCode ? privateCode : "", 3, C_PRIMARY_TXT);
             drawText(fb, TOP_W, TOP_H, (TOP_W - 25 * 8) / 2, 118, "WAITING FOR AN OPPONENT", 1, C_ACCENT);
             drawTextWrapped(fb, TOP_W, TOP_H, 12, 144, TOP_W - 24,
                             "Share this code so a friend can join your room.", 1, C_TEXT);
@@ -141,9 +149,9 @@ void drawTopScreen(uint8_t *fb, AppState state,
         if (lobbyPage == LobbyPage::SPECTATE_COMING)
         {
             fillRect(fb, TOP_W, TOP_H, 0, 0, TOP_W, 25, C_PRIMARY);
-            drawText(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
+            drawTextBold(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
             drawText(fb, TOP_W, TOP_H, 250, 8, "SPECTATE", 1, C_PRIMARY_TXT);
-            drawText(fb, TOP_W, TOP_H, (TOP_W - 12 * 8) / 2, 70, "COMING SOON", 3, C_PRIMARY);
+            drawTextBold(fb, TOP_W, TOP_H, (TOP_W - 12 * 8) / 2, 70, "COMING SOON", 3, C_PRIMARY);
             drawTextWrapped(fb, TOP_W, TOP_H, 12, 128, TOP_W - 24,
                             "Spectating other players will be available soon.", 1, C_ACCENT);
             if (statusMsg && statusMsg[0])
@@ -159,18 +167,19 @@ void drawTopScreen(uint8_t *fb, AppState state,
         const int variantIndex = variant < 0 || variant > 3 ? 0 : variant;
 
         fillRect(fb, TOP_W, TOP_H, 0, 24, TOP_W, TOP_H - 24, C_BG);
-        drawText(fb, TOP_W, TOP_H, 12, 38,
+        drawTextBold(fb, TOP_W, TOP_H, 12, 38,
                  lobbyPage == LobbyPage::HOME ? "READY TO PLAY" : "MATCH SETUP",
                  2, C_PRIMARY);
-        drawText(fb, TOP_W, TOP_H, 12, 68, safeUser, 2, C_TEXT);
+        drawTextBold(fb, TOP_W, TOP_H, 12, 68, safeUser, 2, C_TEXT);
         drawText(fb, TOP_W, TOP_H, 12, 88, isRated ? "RANKED PLAYER" : "CASUAL PLAYER", 1, C_ACCENT);
         drawText(fb, TOP_W, TOP_H, 12, 112, "CURRENT LOADOUT", 1, C_PRIMARY);
         drawText(fb, TOP_W, TOP_H, 12, 128, isRated ? "Ranked" : "Casual", 1, C_TEXT);
         drawText(fb, TOP_W, TOP_H, 12, 144, timeLabels[timeIndex], 1, C_TEXT);
         drawTextWrapped(fb, TOP_W, TOP_H, 12, 160, 170, variantLabels[variantIndex], 1, C_TEXT);
 
-        fillRoundRect(fb, TOP_W, TOP_H, 236, 54, 140, 140, 10, C_PRIMARY);
-        fillRoundRect(fb, TOP_W, TOP_H, 244, 62, 124, 124, 5, C_BG_DARK);
+        fillRoundRectAccented(fb, TOP_W, TOP_H, 236, 54, 140, 140, 12,
+                              C_PRIMARY, darken(C_PRIMARY, 0.35f), 6);
+        fillRoundRect(fb, TOP_W, TOP_H, 244, 62, 124, 118, 6, C_BG_DARK);
         for (int r = 0; r < 6; ++r)
         {
             for (int c = 0; c < 6; ++c)
@@ -186,7 +195,7 @@ void drawTopScreen(uint8_t *fb, AppState state,
                 if (PREVIEW_BOARD[r][c] != '0')
                     drawPreviewPiece(fb, 258 + c * 19, 76 + r * 19, PREVIEW_BOARD[r][c]);
         drawText(fb, TOP_W, TOP_H, 290, 202, "ELO", 1, C_ACCENT);
-        drawText(fb, TOP_W, TOP_H, 314, 202, safeElo, 1, C_PRIMARY);
+        drawTextBold(fb, TOP_W, TOP_H, 314, 202, safeElo, 1, C_PRIMARY);
         if (statusMsg && statusMsg[0])
             drawTextWrapped(fb, TOP_W, TOP_H, 12, 204, 210, statusMsg, 1, C_PRIMARY);
     }
@@ -243,7 +252,7 @@ void drawBottomScreen(uint8_t *fb, AppState state,
         if (lobbyPage == LobbyPage::HOME)
         {
             drawText(fb, BOT_W, BOT_H, 8, 38, "WELCOME BACK", 1, C_ACCENT);
-            drawText(fb, BOT_W, BOT_H, 8, 50, username, 1, C_TEXT);
+            drawTextBold(fb, BOT_W, BOT_H, 8, 50, username, 1, C_TEXT);
             char rating[32];
             snprintf(rating, sizeof(rating), "ELO %s", elo);
             drawText(fb, BOT_W, BOT_H, 236, 50, rating, 1, C_PRIMARY);
@@ -292,7 +301,7 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             static const Button cancelPrivate = {64, 160, 192, 30, "Cancel room", C_BG_DARK, C_TEXT, C_ACCENT};
             drawText(fb, BOT_W, BOT_H, 8, 38, "PRIVATE ROOM", 1, C_ACCENT);
             drawText(fb, BOT_W, BOT_H, 8, 58, "Your room code:", 1, C_TEXT);
-            drawText(fb, BOT_W, BOT_H, 8, 76, privateCode ? privateCode : "", 2, C_PRIMARY);
+            drawTextBold(fb, BOT_W, BOT_H, 8, 76, privateCode ? privateCode : "", 2, C_PRIMARY);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 108, BOT_W - 16,
                             "Waiting for a friend to join. Keep this screen open.", 1, C_TEXT);
             drawButton(fb, cancelPrivate, pressed(cancelPrivate), 1, focusVisible && focusIndex == 0);
@@ -310,7 +319,7 @@ void drawBottomScreen(uint8_t *fb, AppState state,
         {
             static const Button cancelQueue = {64, 160, 192, 30, "Cancel queue", C_BG_DARK, C_TEXT, C_ACCENT};
             drawText(fb, BOT_W, BOT_H, 8, 38, "MATCHMAKING", 1, C_ACCENT);
-            drawText(fb, BOT_W, BOT_H, 8, 58, "Waiting for an opponent", 2, C_PRIMARY);
+            drawTextBold(fb, BOT_W, BOT_H, 8, 58, "Waiting for an opponent", 2, C_PRIMARY);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 88, BOT_W - 16,
                             "Your settings are locked while you are in the queue.", 1, C_TEXT);
             drawText(fb, BOT_W, BOT_H, 8, 122, "Please keep this screen open.", 1, C_ACCENT);
@@ -322,12 +331,13 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             static const char *variantLabels[] = {"Classic", "Fog of War", "Random Setup", "Schizophrenic"};
             const int timeIndex = timeControl < 0 || timeControl > 2 ? 0 : timeControl;
             const int variantIndex = variant < 0 || variant > 3 ? 0 : variant;
-            fillRoundRect(fb, BOT_W, BOT_H, 8, 28, BOT_W - 16, 20, 5, C_BG_DARK);
-            fillRoundRect(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, 20, 5, C_BG_DARK);
-            fillRoundRect(fb, BOT_W, BOT_H, 8, 76, BOT_W - 16, 20, 5, C_BG_DARK);
-            drawRoundRect(fb, BOT_W, BOT_H, 8, 28, BOT_W - 16, 20, 5, 1, C_ACCENT);
-            drawRoundRect(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, 20, 5, 1, C_ACCENT);
-            drawRoundRect(fb, BOT_W, BOT_H, 8, 76, BOT_W - 16, 20, 5, 1, C_ACCENT);
+            Color rowShade = darken(C_BG_DARK, 0.25f);
+            fillRoundRectAccented(fb, BOT_W, BOT_H, 8, 28, BOT_W - 16, 20, 6, C_BG_DARK, rowShade, 2);
+            fillRoundRectAccented(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, 20, 6, C_BG_DARK, rowShade, 2);
+            fillRoundRectAccented(fb, BOT_W, BOT_H, 8, 76, BOT_W - 16, 20, 6, C_BG_DARK, rowShade, 2);
+            drawRoundRect(fb, BOT_W, BOT_H, 8, 28, BOT_W - 16, 20, 6, 1, C_ACCENT);
+            drawRoundRect(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, 20, 6, 1, C_ACCENT);
+            drawRoundRect(fb, BOT_W, BOT_H, 8, 76, BOT_W - 16, 20, 6, 1, C_ACCENT);
             drawText(fb, BOT_W, BOT_H, 8, 14,
                      lobbyPage == LobbyPage::PUBLIC_SETTINGS ? "Public settings" : "Create room",
                      1, C_TEXT);
@@ -357,8 +367,6 @@ void drawBottomScreen(uint8_t *fb, AppState state,
 
 }
 
-static const Color C_BOARD_LIGHT = {232, 224, 202};
-static const Color C_BOARD_DARK = {143, 108, 74};
 static const Color C_MOVE = {64, 190, 96};
 static const Color C_SELECTED = {45, 125, 220};
 
@@ -372,6 +380,8 @@ static void drawCircle(uint8_t *fb, int w, int h, int cx, int cy, int radius, Co
 
 static void drawPiece(uint8_t *fb, int w, int h, int cx, int cy, char piece, int radius)
 {
+    // Small offset shadow so pieces read as raised tokens rather than flat discs.
+    drawCircle(fb, w, h, cx + 1, cy + 2, radius + 1, darken(C_BOARD_DARK, 0.4f));
     drawCircle(fb, w, h, cx, cy, radius + 1, C_TEXT);
     drawCircle(fb, w, h, cx, cy, radius - 1, piece == 'W' ? C_BG_LIGHT : C_TEXT);
     if (piece == 'W')
@@ -465,10 +475,11 @@ void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
         Color col = C_TEXT;
         if (game.winner == game.player) { title = "YOU WIN!"; col = C_SUCCESS; }
         else if (game.winner == 'W' || game.winner == 'B') { title = "YOU LOSE"; col = C_ERROR; }
-        fillRoundRect(fb, TOP_W, TOP_H, 40, 70, TOP_W - 80, 120, 14, C_BG_DARK);
-        drawRoundRect(fb, TOP_W, TOP_H, 40, 70, TOP_W - 80, 120, 14, 3, col);
+        fillRoundRectAccented(fb, TOP_W, TOP_H, 40, 70, TOP_W - 80, 120, 16,
+                              C_BG_DARK, darken(C_BG_DARK, 0.3f), 6);
+        drawRoundRect(fb, TOP_W, TOP_H, 40, 70, TOP_W - 80, 120, 16, 3, col);
         int textW = (int)strlen(title) * 24;
-        drawText(fb, TOP_W, TOP_H, (TOP_W - textW) / 2, 108, title, 3, col);
+        drawTextBold(fb, TOP_W, TOP_H, (TOP_W - textW) / 2, 108, title, 3, col);
         drawText(fb, TOP_W, TOP_H, (TOP_W - 15 * 8) / 2, 164, "SELECT+B OR B: RETURN", 1, C_PRIMARY);
         if (game.statusMsg && game.statusMsg[0])
             drawTextWrapped(fb, TOP_W, TOP_H, 12, 190, TOP_W - 24, game.statusMsg, 1, C_TEXT);
@@ -476,14 +487,15 @@ void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
     }
 
     fillRect(fb, TOP_W, TOP_H, 0, 0, TOP_W, 25, C_PRIMARY);
-    drawText(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
+    drawTextBold(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
     drawText(fb, TOP_W, TOP_H, 250, 8, game.turn == 'W' ? "WHITE TO MOVE" : "BLACK TO MOVE", 1, C_PRIMARY_TXT);
 
     if (game.confirmMove)
     {
-        fillRoundRect(fb, TOP_W, TOP_H, 20, 56, TOP_W - 40, 148, 14, C_PRIMARY);
-        drawRoundRect(fb, TOP_W, TOP_H, 20, 56, TOP_W - 40, 148, 14, 3, C_ACCENT);
-        drawText(fb, TOP_W, TOP_H, 56, 96, "SENDING MOVE", 3, C_PRIMARY_TXT);
+        fillRoundRectAccented(fb, TOP_W, TOP_H, 20, 56, TOP_W - 40, 148, 16,
+                              C_PRIMARY, darken(C_PRIMARY, 0.35f), 6);
+        drawRoundRect(fb, TOP_W, TOP_H, 20, 56, TOP_W - 40, 148, 16, 3, C_ACCENT);
+        drawTextBold(fb, TOP_W, TOP_H, 56, 96, "SENDING MOVE", 3, C_PRIMARY_TXT);
         drawText(fb, TOP_W, TOP_H, (TOP_W - 13 * 8) / 2, 156, "PLEASE WAIT...", 1, C_PRIMARY_TXT);
         drawText(fb, TOP_W, TOP_H, (TOP_W - 24 * 8) / 2, 178, game.isOnline ? "WAITING FOR THE SERVER" : "APPLYING YOUR MOVE", 1, C_ACCENT);
         if (game.statusMsg && game.statusMsg[0])
@@ -500,27 +512,28 @@ void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
     drawStepTab(fb, 142, 116, "MOVE",    stepMove);
     drawStepTab(fb, 268, 116, "SEND",    stepConfirm);
 
-    fillRoundRect(fb, TOP_W, TOP_H, 12, 66, 376, 104, 10, C_BG_DARK);
-    drawRoundRect(fb, TOP_W, TOP_H, 12, 66, 376, 104, 10, 2, C_ACCENT);
+    fillRoundRectAccented(fb, TOP_W, TOP_H, 12, 66, 376, 104, 12,
+                          C_BG_DARK, darken(C_BG_DARK, 0.25f), 4);
+    drawRoundRect(fb, TOP_W, TOP_H, 12, 66, 376, 104, 12, 2, C_ACCENT);
 
     const int rx = 24;
     const char *quitAction = game.isOnline ? "CONCEDE" : "EXIT";
     if (waiting)
     {
-        drawText(fb, TOP_W, TOP_H, rx, 78, "WAITING FOR OPPONENT", 1, C_PRIMARY);
+        drawTextBold(fb, TOP_W, TOP_H, rx, 78, "WAITING FOR OPPONENT", 1, C_PRIMARY);
         drawGameInstructionRow(fb, rx, 106, "DPAD", "LOOK AT THE BOARD");
         drawGameInstructionRow(fb, rx, 130, "SELECT+B", quitAction);
     }
     else if (stepMove)
     {
-        drawText(fb, TOP_W, TOP_H, rx, 78, "MOVE YOUR PIECE", 1, C_PRIMARY);
+        drawTextBold(fb, TOP_W, TOP_H, rx, 78, "MOVE YOUR PIECE", 1, C_PRIMARY);
         drawGameInstructionRow(fb, rx, 106, "DPAD", "AIM DESTINATION");
         drawGameInstructionRow(fb, rx, 130, "A/TOUCH", "SEND MOVE");
         drawGameInstructionRow(fb, rx, 154, "B", "CANCEL SELECTION");
     }
     else
     {
-        drawText(fb, TOP_W, TOP_H, rx, 78, "SELECT A PIECE", 1, C_PRIMARY);
+        drawTextBold(fb, TOP_W, TOP_H, rx, 78, "SELECT A PIECE", 1, C_PRIMARY);
         drawGameInstructionRow(fb, rx, 106, "DPAD", "MOVE CURSOR");
         drawGameInstructionRow(fb, rx, 130, "A/TOUCH", "SELECT PIECE");
         drawGameInstructionRow(fb, rx, 154, "SELECT+B", quitAction);
@@ -533,6 +546,6 @@ void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
 void drawGameBottomScreen(uint8_t *fb, const GameUiState &game)
 {
     clearScreen(fb, BOT_W, BOT_H, C_BG_DARK);
-    drawRoundRect(fb, BOT_W, BOT_H, BOARD_X - 4, BOARD_Y - 4, BOARD_PX + 8, BOARD_PX + 8, 8, 3, C_PRIMARY);
+    fillRoundRect(fb, BOT_W, BOT_H, BOARD_X - 6, BOARD_Y - 6, BOARD_PX + 12, BOARD_PX + 12, 10, C_BOARD_BORDER);
     drawGameBoard(fb, BOT_W, BOT_H, game, BOARD_X, BOARD_Y, BOARD_TILE);
 }

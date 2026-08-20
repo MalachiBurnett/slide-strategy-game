@@ -77,6 +77,30 @@ void fillRoundRect(uint8_t *fb, int w, int h,
     }
 }
 
+Color darken(Color c, float amount)
+{
+    if (amount < 0.0f) amount = 0.0f;
+    if (amount > 1.0f) amount = 1.0f;
+    return Color{
+        (uint8_t)(c.r * (1.0f - amount)),
+        (uint8_t)(c.g * (1.0f - amount)),
+        (uint8_t)(c.b * (1.0f - amount))
+    };
+}
+
+void fillRoundRectAccented(uint8_t *fb, int w, int h,
+                           int x0, int y0, int rw, int rh, int r,
+                           Color cardColor, Color accentColor, int accentPx)
+{
+    if (accentPx <= 0)
+    {
+        fillRoundRect(fb, w, h, x0, y0, rw, rh, r, cardColor);
+        return;
+    }
+    fillRoundRect(fb, w, h, x0, y0, rw, rh, r, accentColor);
+    fillRoundRect(fb, w, h, x0, y0, rw, rh - accentPx, r, cardColor);
+}
+
 // ---------------------------------------------------------------------------
 // Text
 // ---------------------------------------------------------------------------
@@ -111,6 +135,13 @@ int drawText(uint8_t *fb, int fbW, int fbH, int x, int y,
         ++str;
     }
     return x;
+}
+
+int drawTextBold(uint8_t *fb, int fbW, int fbH, int x, int y,
+                 const char *str, int scale, Color fg)
+{
+    drawText(fb, fbW, fbH, x + 1, y, str, scale, fg);
+    return drawText(fb, fbW, fbH, x, y, str, scale, fg);
 }
 
 void drawTextWrapped(uint8_t *fb, int fbW, int fbH,
