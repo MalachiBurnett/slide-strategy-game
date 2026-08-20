@@ -72,7 +72,7 @@ void blitRegionShiftedX(uint8_t *dst, const uint8_t *src, int w, int h,
     for (int x = rx; x < rx + rw; ++x)
     {
         int srcX = x - shiftX;
-        if (x < 0 || x >= w || srcX < 0 || srcX >= w) continue;
+        if (x < 0 || x >= w || srcX < rx || srcX >= rx + rw || srcX < 0 || srcX >= w) continue;
         size_t dstBase = (size_t)x    * h * 3 + colByteOffset;
         size_t srcBase = (size_t)srcX * h * 3 + colByteOffset;
         memcpy(dst + dstBase, src + srcBase, rowBytes);
