@@ -227,8 +227,7 @@ void drawBottomScreen(uint8_t *fb, AppState state,
 
         drawButton(fb, btnSignIn, pressedSignIn, 1, focusVisible && focusIndex == 0);
         drawButton(fb, btnGuest,  pressedGuest, 1, focusVisible && focusIndex == 1);
-        static const Button offline = {16, 188, BOT_W - 32, 20, "Offline local play", C_BG_DARK, C_TEXT, C_ACCENT};
-        drawButton(fb, offline, pressedOffline, 1, focusVisible && focusIndex == 2);
+        drawButton(fb, BTN_OFFLINE, pressedOffline, 1, focusVisible && focusIndex == 2);
         drawButton(fb, btnQuit,   pressedQuit,   1, focusVisible && focusIndex == 3);
     }
     else if (state == AppState::INIT)
@@ -238,15 +237,6 @@ void drawBottomScreen(uint8_t *fb, AppState state,
     }
     else if (state == AppState::LOGGED_IN)
     {
-        static const Button publicMatch = {8, 76, 148, 42, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-        static const Button privateRoom = {164, 76, 148, 42, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-        static const Button createRoom = {8, 88, 148, 42, "Create room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-        static const Button joinRoom = {164, 88, 148, 42, "Join room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-        static const Button localPlay = {8, 124, 148, 42, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
-        static const Button spectate = {164, 124, 148, 42, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
-        static const Button back = {8, 172, 148, 26, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
-        static const Button continueButton = {164, 172, 148, 26, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-
         auto pressed = [&](const Button &b) { return touchActive && buttonHit(b, touchX, touchY); };
 
         if (lobbyPage == LobbyPage::HOME)
@@ -257,34 +247,32 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             snprintf(rating, sizeof(rating), "ELO %s", elo);
             drawText(fb, BOT_W, BOT_H, 236, 50, rating, 1, C_PRIMARY);
             drawText(fb, BOT_W, BOT_H, 8, 64, "CHOOSE A MODE", 1, C_TEXT);
-            drawButton(fb, publicMatch, pressed(publicMatch), 1, focusVisible && focusIndex == 0);
-            drawButton(fb, privateRoom, pressed(privateRoom), 1, focusVisible && focusIndex == 1);
-            drawButton(fb, localPlay, pressed(localPlay), 1, focusVisible && focusIndex == 2);
-            drawButton(fb, spectate, pressed(spectate), 1, focusVisible && focusIndex == 3);
+            drawButton(fb, BTN_PUBLIC_MATCH, pressed(BTN_PUBLIC_MATCH), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, BTN_PRIVATE_ROOM, pressed(BTN_PRIVATE_ROOM), 1, focusVisible && focusIndex == 1);
+            drawButton(fb, BTN_LOCAL_PLAY, pressed(BTN_LOCAL_PLAY), 1, focusVisible && focusIndex == 2);
+            drawButton(fb, BTN_SPECTATE, pressed(BTN_SPECTATE), 1, focusVisible && focusIndex == 3);
             drawButton(fb, btnSignOut, pressed(btnSignOut), 1, focusVisible && focusIndex == 4);
         }
         else if (lobbyPage == LobbyPage::PRIVATE_CHOICE)
         {
             drawText(fb, BOT_W, BOT_H, 8, 38, "PRIVATE ROOM", 1, C_ACCENT);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, "Create a room with settings, or join with a code.", 1, C_TEXT);
-            drawButton(fb, createRoom, pressed(createRoom), 1, focusVisible && focusIndex == 0);
-            drawButton(fb, joinRoom, pressed(joinRoom), 1, focusVisible && focusIndex == 1);
-            drawButton(fb, back, pressed(back), 1, focusVisible && focusIndex == 2);
+            drawButton(fb, BTN_CREATE_ROOM, pressed(BTN_CREATE_ROOM), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, BTN_JOIN_ROOM, pressed(BTN_JOIN_ROOM), 1, focusVisible && focusIndex == 1);
+            drawButton(fb, BTN_BACK, pressed(BTN_BACK), 1, focusVisible && focusIndex == 2);
             drawButton(fb, btnQuit, pressed(btnQuit), 1, focusVisible && focusIndex == 3);
         }
         else if (lobbyPage == LobbyPage::PRIVATE_JOIN)
         {
             drawText(fb, BOT_W, BOT_H, 8, 38, "JOIN A ROOM", 1, C_ACCENT);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, "Enter the host's join code.", 1, C_TEXT);
-            drawButton(fb, continueButton, pressed(continueButton), 1, focusVisible && focusIndex == 0);
-            drawButton(fb, back, pressed(back), 1, focusVisible && focusIndex == 1);
+            drawButton(fb, BTN_CONTINUE, pressed(BTN_CONTINUE), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, BTN_BACK, pressed(BTN_BACK), 1, focusVisible && focusIndex == 1);
             drawButton(fb, btnQuit, pressed(btnQuit), 1, focusVisible && focusIndex == 2);
         }
         else if (lobbyPage == LobbyPage::LOCAL_SETTINGS)
         {
             static const char *localVariants[] = {"Classic", "Fog of War", "Random Setup", "Schizophrenic"};
-            static const Button startLocal = {164, 172, 148, 26, "Start local", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-            static const Button backLocal = {8, 172, 148, 26, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
             drawText(fb, BOT_W, BOT_H, 8, 38, "LOCAL PLAY", 1, C_ACCENT);
             drawText(fb, BOT_W, BOT_H, 8, 52, "VARIANT", 1, C_PRIMARY);
             drawText(fb, BOT_W, BOT_H, 132, 52, localVariants[variant % 4], 1, C_TEXT);
@@ -292,38 +280,37 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             drawText(fb, BOT_W, BOT_H, 132, 76, "NO TIME LIMIT", 1, C_TEXT);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 100, BOT_W - 16,
                             "Choose a variant, then press start.", 1, C_ACCENT);
-            if (focusVisible && focusIndex == 0) drawRoundRect(fb, BOT_W, BOT_H, 8, 44, BOT_W - 16, 20, 5, 3, C_SUCCESS);
-            drawButton(fb, startLocal, pressed(startLocal), 1, focusVisible && focusIndex == 1);
-            drawButton(fb, backLocal, pressed(backLocal), 1, focusVisible && focusIndex == 2);
+            if (focusVisible && focusIndex == 0)
+                drawRoundRect(fb, BOT_W, BOT_H, BTN_LOCAL_VARIANT.x, BTN_LOCAL_VARIANT.y,
+                             BTN_LOCAL_VARIANT.w, BTN_LOCAL_VARIANT.h, 5, 3, C_SUCCESS);
+            drawButton(fb, BTN_START_LOCAL, pressed(BTN_START_LOCAL), 1, focusVisible && focusIndex == 1);
+            drawButton(fb, BTN_BACK, pressed(BTN_BACK), 1, focusVisible && focusIndex == 2);
         }
         else if (lobbyPage == LobbyPage::PRIVATE_WAIT)
         {
-            static const Button cancelPrivate = {64, 160, 192, 30, "Cancel room", C_BG_DARK, C_TEXT, C_ACCENT};
             drawText(fb, BOT_W, BOT_H, 8, 38, "PRIVATE ROOM", 1, C_ACCENT);
             drawText(fb, BOT_W, BOT_H, 8, 58, "Your room code:", 1, C_TEXT);
             drawTextBold(fb, BOT_W, BOT_H, 8, 76, privateCode ? privateCode : "", 2, C_PRIMARY);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 108, BOT_W - 16,
                             "Waiting for a friend to join. Keep this screen open.", 1, C_TEXT);
-            drawButton(fb, cancelPrivate, pressed(cancelPrivate), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, BTN_CANCEL_PRIVATE, pressed(BTN_CANCEL_PRIVATE), 1, focusVisible && focusIndex == 0);
         }
         else if (lobbyPage == LobbyPage::SPECTATE_COMING)
         {
-            static const Button backSpectate = {8, 172, 148, 26, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
             drawText(fb, BOT_W, BOT_H, 8, 38, "SPECTATE", 1, C_ACCENT);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 58, BOT_W - 16,
                             "Spectating is not available yet.\nYou can watch matches from the website instead.", 1, C_TEXT);
-            drawButton(fb, backSpectate, pressed(backSpectate), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, BTN_BACK, pressed(BTN_BACK), 1, focusVisible && focusIndex == 0);
             drawButton(fb, btnQuit, pressed(btnQuit), 1, false);
         }
         else if (lobbyPage == LobbyPage::QUEUE)
         {
-            static const Button cancelQueue = {64, 160, 192, 30, "Cancel queue", C_BG_DARK, C_TEXT, C_ACCENT};
             drawText(fb, BOT_W, BOT_H, 8, 38, "MATCHMAKING", 1, C_ACCENT);
             drawTextBold(fb, BOT_W, BOT_H, 8, 58, "Waiting for an opponent", 2, C_PRIMARY);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 88, BOT_W - 16,
                             "Your settings are locked while you are in the queue.", 1, C_TEXT);
             drawText(fb, BOT_W, BOT_H, 8, 122, "Please keep this screen open.", 1, C_ACCENT);
-            drawButton(fb, cancelQueue, pressed(cancelQueue), 1, focusVisible && focusIndex == 0);
+            drawButton(fb, BTN_CANCEL_QUEUE, pressed(BTN_CANCEL_QUEUE), 1, focusVisible && focusIndex == 0);
         }
         else
         {
@@ -332,12 +319,12 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             const int timeIndex = timeControl < 0 || timeControl > 2 ? 0 : timeControl;
             const int variantIndex = variant < 0 || variant > 3 ? 0 : variant;
             Color rowShade = darken(C_BG_DARK, 0.25f);
-            fillRoundRectAccented(fb, BOT_W, BOT_H, 8, 28, BOT_W - 16, 20, 6, C_BG_DARK, rowShade, 2);
-            fillRoundRectAccented(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, 20, 6, C_BG_DARK, rowShade, 2);
-            fillRoundRectAccented(fb, BOT_W, BOT_H, 8, 76, BOT_W - 16, 20, 6, C_BG_DARK, rowShade, 2);
-            drawRoundRect(fb, BOT_W, BOT_H, 8, 28, BOT_W - 16, 20, 6, 1, C_ACCENT);
-            drawRoundRect(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, 20, 6, 1, C_ACCENT);
-            drawRoundRect(fb, BOT_W, BOT_H, 8, 76, BOT_W - 16, 20, 6, 1, C_ACCENT);
+            const Button *rows[3] = {&BTN_MATCH_SETTING, &BTN_TIME_SETTING, &BTN_VARIANT_SETTING};
+            for (const Button *row : rows)
+            {
+                fillRoundRectAccented(fb, BOT_W, BOT_H, row->x, row->y, row->w, row->h, 6, C_BG_DARK, rowShade, 2);
+                drawRoundRect(fb, BOT_W, BOT_H, row->x, row->y, row->w, row->h, 6, 1, C_ACCENT);
+            }
             drawText(fb, BOT_W, BOT_H, 8, 14,
                      lobbyPage == LobbyPage::PUBLIC_SETTINGS ? "Public settings" : "Create room",
                      1, C_TEXT);
@@ -348,11 +335,11 @@ void drawBottomScreen(uint8_t *fb, AppState state,
             drawText(fb, BOT_W, BOT_H, 8, 82, "VARIANT", 1, C_PRIMARY);
             drawText(fb, BOT_W, BOT_H, 132, 82, variantLabels[variantIndex], 1, C_TEXT);
             drawTextWrapped(fb, BOT_W, BOT_H, 8, 106, BOT_W - 16, "Settings are ready. Press continue when you are ready.", 1, C_ACCENT);
-            if (focusVisible && focusIndex == 0) drawRoundRect(fb, BOT_W, BOT_H, 8, 28, BOT_W - 16, 20, 5, 3, C_SUCCESS);
-            if (focusVisible && focusIndex == 1) drawRoundRect(fb, BOT_W, BOT_H, 8, 52, BOT_W - 16, 20, 5, 3, C_SUCCESS);
-            if (focusVisible && focusIndex == 2) drawRoundRect(fb, BOT_W, BOT_H, 8, 76, BOT_W - 16, 20, 5, 3, C_SUCCESS);
-            drawButton(fb, continueButton, pressed(continueButton), 1, focusVisible && focusIndex == 3);
-            drawButton(fb, back, pressed(back), 1, focusVisible && focusIndex == 4);
+            if (focusVisible && focusIndex == 0) drawRoundRect(fb, BOT_W, BOT_H, BTN_MATCH_SETTING.x, BTN_MATCH_SETTING.y, BTN_MATCH_SETTING.w, BTN_MATCH_SETTING.h, 5, 3, C_SUCCESS);
+            if (focusVisible && focusIndex == 1) drawRoundRect(fb, BOT_W, BOT_H, BTN_TIME_SETTING.x, BTN_TIME_SETTING.y, BTN_TIME_SETTING.w, BTN_TIME_SETTING.h, 5, 3, C_SUCCESS);
+            if (focusVisible && focusIndex == 2) drawRoundRect(fb, BOT_W, BOT_H, BTN_VARIANT_SETTING.x, BTN_VARIANT_SETTING.y, BTN_VARIANT_SETTING.w, BTN_VARIANT_SETTING.h, 5, 3, C_SUCCESS);
+            drawButton(fb, BTN_CONTINUE, pressed(BTN_CONTINUE), 1, focusVisible && focusIndex == 3);
+            drawButton(fb, BTN_BACK, pressed(BTN_BACK), 1, focusVisible && focusIndex == 4);
         }
 
         if (lobbyPage == LobbyPage::HOME ||

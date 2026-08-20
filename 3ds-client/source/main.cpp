@@ -133,9 +133,6 @@ int main()
         "Sign out",
         C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}
     };
-    static const Button BTN_MATCH_SETTING = {8, 28, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-    static const Button BTN_TIME_SETTING = {8, 52, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-    static const Button BTN_VARIANT_SETTING = {8, 76, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
 
     // ---------------------------------------------------------------------------
     // State
@@ -909,7 +906,6 @@ main_loop:
 
         pressedSignIn = touchHeld && buttonHit(BTN_SIGNIN, touch.px, touch.py);
         pressedGuest = touchHeld && buttonHit(BTN_GUEST, touch.px, touch.py);
-        static const Button BTN_OFFLINE = {16, 188, BOT_W - 32, 20, "Offline local play", C_BG_DARK, C_TEXT, C_ACCENT};
         pressedOffline = touchHeld && buttonHit(BTN_OFFLINE, touch.px, touch.py);
         pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
         pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
@@ -1070,31 +1066,19 @@ main_loop:
             }
             else if (state == AppState::LOGGED_IN)
             {
-                static const Button publicMatch = {8, 76, 148, 42, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button privateRoom = {164, 76, 148, 42, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button createRoom = {8, 88, 148, 42, "Create room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button joinRoom = {164, 88, 148, 42, "Join room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button localPlay = {8, 124, 148, 42, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
-                static const Button spectate = {164, 124, 148, 42, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button back = {8, 172, 148, 26, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button continueButton = {164, 172, 148, 26, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-                static const Button localVariant = {8, 44, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button cancelQueue = {64, 160, 192, 30, "Cancel queue", C_BG_DARK, C_TEXT, C_ACCENT};
-                static const Button cancelPrivate = {64, 160, 192, 30, "Cancel room", C_BG_DARK, C_TEXT, C_ACCENT};
-
                 const LobbyPage pageBefore = lobbyPage;
                 if (lobbyPage == LobbyPage::HOME)
                 {
-                    if (buttonHit(publicMatch, touch.px, touch.py)) lobbyPage = LobbyPage::PUBLIC_SETTINGS;
-                    else if (buttonHit(privateRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CHOICE;
-                    else if (buttonHit(localPlay, touch.px, touch.py))
+                    if (buttonHit(BTN_PUBLIC_MATCH, touch.px, touch.py)) lobbyPage = LobbyPage::PUBLIC_SETTINGS;
+                    else if (buttonHit(BTN_PRIVATE_ROOM, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CHOICE;
+                    else if (buttonHit(BTN_LOCAL_PLAY, touch.px, touch.py))
                     {
                         lobbyPage = LobbyPage::LOCAL_SETTINGS;
                         focusIndex = 0;
                     }
-                    else if (buttonHit(spectate, touch.px, touch.py)) { lobbyPage = LobbyPage::SPECTATE_COMING; focusIndex = 0; statusMsg[0] = 0; }
+                    else if (buttonHit(BTN_SPECTATE, touch.px, touch.py)) { lobbyPage = LobbyPage::SPECTATE_COMING; focusIndex = 0; statusMsg[0] = 0; }
                 }
-                else if (buttonHit(back, touch.px, touch.py))
+                else if (buttonHit(BTN_BACK, touch.px, touch.py))
                 {
                     if (lobbyPage == LobbyPage::PRIVATE_CREATE || lobbyPage == LobbyPage::PRIVATE_JOIN)
                         lobbyPage = LobbyPage::PRIVATE_CHOICE;
@@ -1104,10 +1088,10 @@ main_loop:
                 }
                 else if (lobbyPage == LobbyPage::PRIVATE_CHOICE)
                 {
-                    if (buttonHit(createRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CREATE;
-                    else if (buttonHit(joinRoom, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_JOIN;
+                    if (buttonHit(BTN_CREATE_ROOM, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CREATE;
+                    else if (buttonHit(BTN_JOIN_ROOM, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_JOIN;
                 }
-                else if (lobbyPage == LobbyPage::QUEUE && buttonHit(cancelQueue, touch.px, touch.py))
+                else if (lobbyPage == LobbyPage::QUEUE && buttonHit(BTN_CANCEL_QUEUE, touch.px, touch.py))
                 {
                     snprintf(statusMsg, sizeof(statusMsg), "Leaving queue...");
                     char leaveJson[96];
@@ -1119,7 +1103,7 @@ main_loop:
                     statusMsg[0] = 0;
                     focusIndex = 0;
                 }
-                else if (lobbyPage == LobbyPage::PRIVATE_WAIT && buttonHit(cancelPrivate, touch.px, touch.py))
+                else if (lobbyPage == LobbyPage::PRIVATE_WAIT && buttonHit(BTN_CANCEL_PRIVATE, touch.px, touch.py))
                 {
                     snprintf(statusMsg, sizeof(statusMsg), "Leaving room...");
                     char cancelJson[96];
@@ -1134,12 +1118,12 @@ main_loop:
                 }
                 else if (lobbyPage == LobbyPage::LOCAL_SETTINGS)
                 {
-                    if (buttonHit(localVariant, touch.px, touch.py))
+                    if (buttonHit(BTN_LOCAL_VARIANT, touch.px, touch.py))
                     {
                         variant = (variant + 1) % 4;
                         snprintf(statusMsg, sizeof(statusMsg), "Local variant changed");
                     }
-                    else if (buttonHit(continueButton, touch.px, touch.py))
+                    else if (buttonHit(BTN_START_LOCAL, touch.px, touch.py))
                     {
                         resetGame(game, variant);
                         onlineGame = false;
@@ -1149,7 +1133,7 @@ main_loop:
                     }
                 }
                 else if ((lobbyPage == LobbyPage::PUBLIC_SETTINGS || lobbyPage == LobbyPage::PRIVATE_CREATE) &&
-                         !buttonHit(continueButton, touch.px, touch.py))
+                         !buttonHit(BTN_CONTINUE, touch.px, touch.py))
                 {
                     if (buttonHit(BTN_MATCH_SETTING, touch.px, touch.py))
                     {
@@ -1167,7 +1151,7 @@ main_loop:
                         snprintf(statusMsg, sizeof(statusMsg), "Variant changed");
                     }
                 }
-                else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_JOIN && !roomJoinJob)
+                else if (buttonHit(BTN_CONTINUE, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_JOIN && !roomJoinJob)
                 {
                     if (showKeyboard("Join code (e.g. APPLE123)", joinCode, sizeof(joinCode)))
                     {
@@ -1182,7 +1166,7 @@ main_loop:
                         }
                     }
                 }
-                else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_CREATE && !roomCreateJob)
+                else if (buttonHit(BTN_CONTINUE, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_CREATE && !roomCreateJob)
                 {
                     static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
                     char createJson[160];
@@ -1206,7 +1190,7 @@ main_loop:
                         snprintf(statusMsg, sizeof(statusMsg), "Creating room...");
                     }
                 }
-                else if (buttonHit(continueButton, touch.px, touch.py))
+                else if (buttonHit(BTN_CONTINUE, touch.px, touch.py))
                 {
                     if (lobbyPage == LobbyPage::PUBLIC_SETTINGS && !queueJoinJob)
                     {
