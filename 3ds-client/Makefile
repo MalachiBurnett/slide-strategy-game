@@ -132,7 +132,7 @@ ifeq ($(strip $(NO_SMDH)),)
     export _3DSXFLAGS += --smdh=$(CURDIR)/$(TARGET).smdh
 endif
 
-.PHONY: all cia clean
+.PHONY: all cia clean model
 
 #---------------------------------------------------------------------------------
 # Normal 3DSX build
@@ -164,13 +164,16 @@ $(CIA): $(OUTPUT).elf $(OUTPUT).smdh $(BANNER_BNR) $(RSF)
 # Banner
 #---------------------------------------------------------------------------------
 
-# Only defined when banner.glb exists, so a plain committed banner.cgfx with
-# no .glb next to it is left alone rather than erroring on a missing rule.
-ifneq ($(wildcard $(BANNER_GLB)),)
-$(BANNER_CGFX): $(BANNER_GLB)
-	@echo "Converting $(notdir $<) to $(notdir $@) via pycgfx..."
-	@$(PYTHON) "$(PYCGFX_MAIN)" "$<" "$@"
-endif
+# `make model` explicitly (re-)converts banner.glb to banner.cgfx via
+# pycgfx. Deliberately NOT a dependency of banner.bnr/cia — those just use
+# whatever banner.cgfx currently contains. That matters because banner.cgfx
+# often gets hand hex-edited after conversion (e.g. to enable banner mode);
+# if cia/bnr auto-regenerated it from banner.glb on every build, that edit
+# would get silently clobbered the next time you just wanted to rebuild.
+# Re-run `make model` yourself whenever you actually want a fresh convert.
+model: $(BANNER_GLB)
+	@echo "Converting $(notdir $<) to $(notdir $(BANNER_CGFX)) via pycgfx..."
+	@$(PYTHON) "$(PYCGFX_MAIN)" "$<" "$(BANNER_CGFX)"
 
 $(BANNER_BNR): $(BANNER_CGFX) $(BANNER_WAV)
 	@echo "Creating $(notdir $@)..."
