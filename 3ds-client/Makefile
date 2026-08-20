@@ -29,7 +29,7 @@ APP_PRODUCT_CODE := CTR-N-SLIDE
 
 # CIA files
 CIA         := $(TARGET).cia
-BANNER_PNG  := $(CURDIR)/banner.png
+BANNER_CGFX := $(CURDIR)/banner.cgfx
 BANNER_WAV  := $(CURDIR)/banner.wav
 BANNER_BNR  := $(CURDIR)/banner.bnr
 ICON_ICN    := $(CURDIR)/$(TARGET).icn
@@ -154,10 +154,10 @@ $(CIA): $(OUTPUT).elf $(OUTPUT).smdh $(BANNER_BNR) $(RSF)
 # Banner
 #---------------------------------------------------------------------------------
 
-$(BANNER_BNR): $(BANNER_PNG) $(BANNER_WAV)
+$(BANNER_BNR): $(BANNER_CGFX) $(BANNER_WAV)
 	@echo "Creating $(notdir $@)..."
 	@$(BANNERTOOL) makebanner \
-		-i "$<" \
+		-ci "$(BANNER_CGFX)" \
 		-a "$(BANNER_WAV)" \
 		-o "$@"
 
