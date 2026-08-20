@@ -79,42 +79,112 @@ static float easeOutBack(float t)
 }
 
 // ---------------------------------------------------------------------------
-// Screen-transition zones — each screen is carved into a few rectangles that
-// slide independently (rather than the whole screen moving as one block), in
-// whichever direction is closest to that rectangle's edge. A hard rule: the
-// top screen never slides DOWN and the bottom screen never slides UP, since
-// that would visually suggest sliding onto the other physical display.
+// Screen-transition zones — each screen is carved into rectangles that slide
+// independently (rather than the whole screen moving as one block, or being
+// cut at fixed geometric lines that can slice through a widget). A hard
+// rule: the top screen never slides DOWN and the bottom screen never slides
+// UP, since that would visually suggest sliding onto the other display.
+//
+// Every zone list starts with a full-screen "catch-all" (direction LEFT —
+// the default for anything not explicitly boxed) that later zones draw over
+// on top of, so unlisted content (headings, wrapped text, decoration) still
+// moves as one whole piece instead of tearing at some arbitrary boundary.
 // ---------------------------------------------------------------------------
 enum class SlideDir { LEFT, RIGHT, UP, DOWN };
 
 struct SlideZone { int x, y, w, h; SlideDir dir; };
 
-// Title bar slides up; everything below it splits left/right down the
-// middle. Used for every top-screen layout (lobby, QR, game) — they all
-// share the same 25px bar.
+// Title bar slides up; everything else on the top screen is one catch-all
+// piece sliding left. Used for every top-screen layout (lobby, QR, game) —
+// they all share the same 25px bar, and none has enough discrete button-like
+// objects to be worth splitting further.
 static constexpr SlideZone TOP_ZONES[] = {
     {0, 0, TOP_W, 25, SlideDir::UP},
-    {0, 25, TOP_W / 2, TOP_H - 25, SlideDir::LEFT},
-    {TOP_W / 2, 25, TOP_W - TOP_W / 2, TOP_H - 25, SlideDir::RIGHT},
+    {0, 25, TOP_W, TOP_H - 25, SlideDir::LEFT},
 };
-
-// Lobby bottom screen: the bottom-most strip (Quit and similar) slides down;
-// everything else splits left/right down the middle.
-static constexpr SlideZone BOTTOM_LOBBY_ZONES[] = {
-    {0, 0, BOT_W / 2, BOT_H - 32, SlideDir::LEFT},
-    {BOT_W / 2, 0, BOT_W - BOT_W / 2, BOT_H - 32, SlideDir::RIGHT},
-    {0, BOT_H - 32, BOT_W, 32, SlideDir::DOWN},
-};
+static constexpr int TOP_ZONE_COUNT = sizeof(TOP_ZONES) / sizeof(TOP_ZONES[0]);
 
 // In-game bottom screen is just the board — one cohesive block, slides down
 // (never up, per the same screen-crossing rule).
 static constexpr SlideZone BOTTOM_GAME_ZONES[] = {
     {0, 0, BOT_W, BOT_H, SlideDir::DOWN},
 };
+static constexpr int BOTTOM_GAME_ZONE_COUNT = sizeof(BOTTOM_GAME_ZONES) / sizeof(BOTTOM_GAME_ZONES[0]);
 
-static constexpr int TOP_ZONE_COUNT          = sizeof(TOP_ZONES) / sizeof(TOP_ZONES[0]);
-static constexpr int BOTTOM_LOBBY_ZONE_COUNT = sizeof(BOTTOM_LOBBY_ZONES) / sizeof(BOTTOM_LOBBY_ZONES[0]);
-static constexpr int BOTTOM_GAME_ZONE_COUNT  = sizeof(BOTTOM_GAME_ZONES) / sizeof(BOTTOM_GAME_ZONES[0]);
+// Turns a button's own rectangle into its own zone, so it slides as a whole
+// object rather than being sliced by some unrelated boundary:
+//   - a button anchored right at the bottom edge (Quit and similar) exits
+//     downward, matching its edge;
+//   - a button that sits entirely in one half slides toward that half;
+//   - a button that would straddle the middle (and so could only be split
+//     in two) instead defaults to sliding left as a whole, per the rule
+//     that nothing should ever visibly tear.
+static SlideZone zoneForButton(const Button &b, int screenW, int screenH)
+{
+    if (b.y + b.h >= screenH - 12)
+        return SlideZone{b.x, b.y, b.w, b.h, SlideDir::DOWN};
+    const int mid = screenW / 2;
+    const bool crossesMid = b.x < mid && (b.x + b.w) > mid;
+    const SlideDir dir = crossesMid ? SlideDir::LEFT
+                                    : ((b.x + b.w / 2 < mid) ? SlideDir::LEFT : SlideDir::RIGHT);
+    return SlideZone{b.x, b.y, b.w, b.h, dir};
+}
+
+// Builds the current lobby bottom screen's zone list: the full-screen
+// catch-all first, then one zone per button actually shown for this
+// state/page — mirroring drawBottomScreen's own branches, since that's the
+// only source of truth for which buttons appear where. Returns the count;
+// `out` must have room for at least 8.
+static int buildBottomZones(AppState state, LobbyPage lobbyPage, SlideZone *out,
+                            const Button &btnSignIn, const Button &btnGuest,
+                            const Button &btnSignOut, const Button &btnQuit)
+{
+    int n = 0;
+    out[n++] = SlideZone{0, 0, BOT_W, BOT_H, SlideDir::LEFT};
+    auto add = [&](const Button &b) { out[n++] = zoneForButton(b, BOT_W, BOT_H); };
+
+    if (state == AppState::QR_LOGIN || state == AppState::ERROR_STATE)
+    {
+        add(btnSignIn); add(btnGuest); add(BTN_OFFLINE); add(btnQuit);
+    }
+    else if (state == AppState::INIT)
+    {
+        add(btnQuit);
+    }
+    else if (state == AppState::LOGGED_IN)
+    {
+        switch (lobbyPage)
+        {
+        case LobbyPage::HOME:
+            add(BTN_PUBLIC_MATCH); add(BTN_PRIVATE_ROOM); add(BTN_LOCAL_PLAY); add(BTN_SPECTATE);
+            add(btnSignOut); add(btnQuit);
+            break;
+        case LobbyPage::PRIVATE_CHOICE:
+            add(BTN_CREATE_ROOM); add(BTN_JOIN_ROOM); add(BTN_BACK); add(btnQuit);
+            break;
+        case LobbyPage::PRIVATE_JOIN:
+            add(BTN_CONTINUE); add(BTN_BACK); add(btnQuit);
+            break;
+        case LobbyPage::LOCAL_SETTINGS:
+            add(BTN_LOCAL_VARIANT); add(BTN_START_LOCAL); add(BTN_BACK);
+            break;
+        case LobbyPage::PRIVATE_WAIT:
+            add(BTN_CANCEL_PRIVATE);
+            break;
+        case LobbyPage::SPECTATE_COMING:
+            add(BTN_BACK); add(btnQuit);
+            break;
+        case LobbyPage::QUEUE:
+            add(BTN_CANCEL_QUEUE);
+            break;
+        default: // PUBLIC_SETTINGS / PRIVATE_CREATE
+            add(BTN_MATCH_SETTING); add(BTN_TIME_SETTING); add(BTN_VARIANT_SETTING);
+            add(BTN_CONTINUE); add(BTN_BACK); add(btnQuit);
+            break;
+        }
+    }
+    return n;
+}
 
 // Blits one zone's content from `src` into `fb`, at animation progress `t`
 // (0..1). `entering`=false eases the zone off towards its direction
@@ -265,6 +335,12 @@ int main()
     static constexpr int ENTER_FRAMES = 16; // ~266ms slide-in with overshoot
     static uint8_t animTopBuf[TOP_W * TOP_H * 3];
     static uint8_t animBotBuf[BOT_W * BOT_H * 3];
+    // Scratch buffer for the catch-all zone's source: a copy of the current
+    // content with every OTHER zone's rectangle blanked out, so the
+    // catch-all doesn't carry a duplicate "ghost" of buttons that are also
+    // sliding independently via their own zone. Sized for the larger
+    // (top) screen and reused for whichever screen is being processed.
+    static uint8_t maskScratchBuf[TOP_W * TOP_H * 3];
     TransitionPhase topPhase = TransitionPhase::NONE, botPhase = TransitionPhase::NONE;
     int topKey = -1, botKey = -1;
     int topFrame = 0, botFrame = 0;
@@ -372,13 +448,34 @@ int main()
                 frame = 0;
             }
 
+            // If one zone covers the full screen (the catch-all default-LEFT
+            // piece), its source needs every other zone's rectangle blanked
+            // out first — otherwise it carries a duplicate "ghost" of
+            // buttons that are also sliding independently via their own zone.
+            auto drawZones = [&](const uint8_t *src, float t, bool entering)
+            {
+                int catchAllIdx = -1;
+                if (zoneCount > 1)
+                    for (int i = 0; i < zoneCount; ++i)
+                        if (zones[i].x == 0 && zones[i].y == 0 && zones[i].w == w && zones[i].h == h)
+                        { catchAllIdx = i; break; }
+                if (catchAllIdx >= 0)
+                {
+                    memcpy(maskScratchBuf, src, (size_t)w * h * 3);
+                    for (int i = 0; i < zoneCount; ++i)
+                        if (i != catchAllIdx)
+                            fillRect(maskScratchBuf, w, h, zones[i].x, zones[i].y, zones[i].w, zones[i].h, C_BG);
+                }
+                for (int i = 0; i < zoneCount; ++i)
+                    drawZoneSlide(fb, (i == catchAllIdx) ? maskScratchBuf : src, w, h, zones[i], t, entering);
+            };
+
             if (phase == TransitionPhase::EXIT)
             {
                 float t = (float)(frame + 1) / EXIT_FRAMES;
                 if (t > 1.0f) t = 1.0f;
                 clearScreen(fb, w, h, C_BG);
-                for (int i = 0; i < zoneCount; ++i)
-                    drawZoneSlide(fb, animBuf, w, h, zones[i], t, false);
+                drawZones(animBuf, t, false);
                 if (++frame >= EXIT_FRAMES) { phase = TransitionPhase::BLANK; frame = 0; }
             }
             else if (phase == TransitionPhase::BLANK)
@@ -392,8 +489,7 @@ int main()
                 float t = (float)(frame + 1) / ENTER_FRAMES;
                 if (t > 1.0f) t = 1.0f;
                 clearScreen(fb, w, h, C_BG);
-                for (int i = 0; i < zoneCount; ++i)
-                    drawZoneSlide(fb, animBuf, w, h, zones[i], t, true);
+                drawZones(animBuf, t, true);
                 if (++frame >= ENTER_FRAMES) phase = TransitionPhase::NONE;
             }
             else
@@ -402,8 +498,11 @@ int main()
             }
         };
 
-        const SlideZone *botZones = gameActive ? BOTTOM_GAME_ZONES : BOTTOM_LOBBY_ZONES;
-        const int botZoneCount    = gameActive ? BOTTOM_GAME_ZONE_COUNT : BOTTOM_LOBBY_ZONE_COUNT;
+        SlideZone lobbyBotZones[8];
+        const SlideZone *botZones = gameActive ? BOTTOM_GAME_ZONES : lobbyBotZones;
+        const int botZoneCount    = gameActive ? BOTTOM_GAME_ZONE_COUNT
+                                               : buildBottomZones(state, lobbyPage, lobbyBotZones,
+                                                                  BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
 
         // Keyed independently: winning a game changes the top screen (the
         // win/lose panel) but not the bottom (same board either way), so
