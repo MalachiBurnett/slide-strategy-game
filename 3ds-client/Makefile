@@ -29,11 +29,21 @@ APP_PRODUCT_CODE := CTR-N-SLIDE
 
 # CIA files
 CIA         := $(TARGET).cia
+BANNER_GLB  := $(CURDIR)/banner.glb
 BANNER_CGFX := $(CURDIR)/banner.cgfx
 BANNER_WAV  := $(CURDIR)/banner.wav
 BANNER_BNR  := $(CURDIR)/banner.bnr
 ICON_ICN    := $(CURDIR)/$(TARGET).icn
 RSF         := $(CURDIR)/cia.rsf
+
+# banner.glb -> banner.cgfx via pycgfx (github.com/skyfloogle/pycgfx), a
+# separate checkout on this machine. Override PYCGFX_MAIN/PYTHON if yours
+# lives elsewhere. Only wired up when banner.glb is actually present, so the
+# checked-in banner.cgfx keeps working untouched for anyone without it.
+# PYTHON defaults to the Windows Store shim rather than a bare `python`
+# because devkitPro's bundled MSYS2 shell doesn't have python on its PATH.
+PYTHON      ?= /c/Users/Malit/AppData/Local/Microsoft/WindowsApps/python.exe
+PYCGFX_MAIN ?= /d/Projects/GitHub/pycgfx/main.py
 
 #---------------------------------------------------------------------------------
 # Code generation options
@@ -153,6 +163,14 @@ $(CIA): $(OUTPUT).elf $(OUTPUT).smdh $(BANNER_BNR) $(RSF)
 #---------------------------------------------------------------------------------
 # Banner
 #---------------------------------------------------------------------------------
+
+# Only defined when banner.glb exists, so a plain committed banner.cgfx with
+# no .glb next to it is left alone rather than erroring on a missing rule.
+ifneq ($(wildcard $(BANNER_GLB)),)
+$(BANNER_CGFX): $(BANNER_GLB)
+	@echo "Converting $(notdir $<) to $(notdir $@) via pycgfx..."
+	@$(PYTHON) "$(PYCGFX_MAIN)" "$<" "$@"
+endif
 
 $(BANNER_BNR): $(BANNER_CGFX) $(BANNER_WAV)
 	@echo "Creating $(notdir $@)..."
