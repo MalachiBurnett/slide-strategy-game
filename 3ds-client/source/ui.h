@@ -67,6 +67,11 @@ struct GameUiState
     char winner;
     int  flashTimer;
     const char *statusMsg;
+    // Seconds remaining, for display only. main.cpp owns the tick-based
+    // baseline and ticks these down locally between server syncs (see
+    // timerSync/timerFreeze in main.cpp).
+    int timerW;
+    int timerB;
 };
 
 bool buttonHit (const Button &btn, int tx, int ty);

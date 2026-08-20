@@ -172,6 +172,29 @@ int main()
     NetJob *ffJobs[8] = {};
     int ffCount = 0;
 
+    // Optimistic navigation: these jump the UI to the destination page the
+    // instant the button is pressed, then resolve in the background — the
+    // page is reverted with an error if the request turns out to have failed.
+    NetJob *queueJoinJob  = nullptr;   // in-flight /api/3ds/queue
+    NetJob *roomCreateJob = nullptr;   // in-flight /api/3ds/private/create
+    NetJob *roomJoinJob   = nullptr;   // in-flight /api/3ds/private/join
+    u64 queueJoinJobSession  = 0;
+    u64 roomCreateJobSession = 0;
+    u64 roomJoinJobSession   = 0;
+
+    // Short fade whenever the visible screen changes, so navigation (including
+    // the optimistic jumps above) feels alive instead of an instant cut.
+    static constexpr int TRANSITION_FRAMES = 10; // ~166ms at 60fps
+    int transitionKey   = -1;
+    int transitionFrame = 0;
+
+    // Match clock. The server is authoritative (timerSync snaps to its
+    // values whenever a response includes them), but between requests we
+    // tick the side-to-move's clock down locally each frame so it visibly
+    // counts instead of only updating on network round-trips.
+    int timerBaseW = 0, timerBaseB = 0;
+    u64 timerSyncTick = 0;
+
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     bool qrReady = false;
@@ -198,11 +221,39 @@ int main()
         }
     };
 
+    // Snap the match clock to an authoritative server reading.
+    auto timerSync = [&](int w, int b)
+    {
+        timerBaseW = w;
+        timerBaseB = b;
+        timerSyncTick = svcGetSystemTick();
+    };
+    // Re-baseline the clock to whatever it's currently showing, without new
+    // server data — used right before a local turn flip that isn't paired
+    // with a fresh timerW/timerB (e.g. the move response), so the correct
+    // side keeps ticking instead of freezing mid-count or double-counting.
+    auto timerFreeze = [&]()
+    {
+        u64 elapsedSec = (svcGetSystemTick() - timerSyncTick) / (CPU_TICKS_PER_MSEC * 1000);
+        int w = timerBaseW - (game.turn == 'W' ? (int)elapsedSec : 0);
+        int b = timerBaseB - (game.turn == 'B' ? (int)elapsedSec : 0);
+        timerSync(w < 0 ? 0 : w, b < 0 ? 0 : b);
+    };
+
     // Render one frame from the current state.
     auto renderFrame = [&](int touchX, int touchY, bool touchActive)
     {
         uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
         uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
+
+        if (game.isOnline && !game.gameOver)
+        {
+            u64 elapsedSec = (svcGetSystemTick() - timerSyncTick) / (CPU_TICKS_PER_MSEC * 1000);
+            int w = timerBaseW - (game.turn == 'W' ? (int)elapsedSec : 0);
+            int b = timerBaseB - (game.turn == 'B' ? (int)elapsedSec : 0);
+            game.timerW = w < 0 ? 0 : w;
+            game.timerB = b < 0 ? 0 : b;
+        }
 
         if (gameActive)
         {
@@ -215,6 +266,23 @@ int main()
             drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
                              pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
                              BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive, privateCode);
+        }
+
+        // Fade in over the top of whatever was just drawn whenever the
+        // screen identity changes (page navigation, entering/leaving a game).
+        int key = gameActive ? (1000 + (game.gameOver ? 1 : 0))
+                             : ((int)state * 100 + (int)lobbyPage);
+        if (key != transitionKey)
+        {
+            transitionKey   = key;
+            transitionFrame = TRANSITION_FRAMES;
+        }
+        if (transitionFrame > 0)
+        {
+            float alpha = (float)transitionFrame / (float)TRANSITION_FRAMES;
+            fillRectBlend(topFb, TOP_W, TOP_H, 0, 0, TOP_W, TOP_H, C_BG, alpha);
+            fillRectBlend(botFb, BOT_W, BOT_H, 0, 0, BOT_W, BOT_H, C_BG, alpha);
+            --transitionFrame;
         }
 
         gfxFlushBuffers();
@@ -393,12 +461,14 @@ main_loop:
                     }
                     else
                     {
+                        timerFreeze();
                         game.turn = game.player == 'W' ? 'B' : 'W';
                         game.statusMsg = "Move sent. Waiting for server";
                     }
                 }
                 else
                 {
+                    timerFreeze();
                     game.turn = game.player == 'W' ? 'B' : 'W';
                     game.statusMsg = "Move sent. Waiting for server";
                 }
@@ -461,11 +531,16 @@ main_loop:
                 {
                     char color[4] = "W";
                     char turn[4] = "W";
+                    char timerWVal[8] = {};
+                    char timerBVal[8] = {};
                     char prevGameId[48] = {};
                     snprintf(prevGameId, sizeof(prevGameId), "%s", pollingGameId);
                     jsonExtract(j->response.data, "gameId", pollingGameId, sizeof(pollingGameId));
                     jsonExtract(j->response.data, "color", color, sizeof(color));
                     jsonExtract(j->response.data, "turn", turn, sizeof(turn));
+                    if (jsonExtract(j->response.data, "timerW", timerWVal, sizeof(timerWVal)) &&
+                        jsonExtract(j->response.data, "timerB", timerBVal, sizeof(timerBVal)))
+                        timerSync(atoi(timerWVal), atoi(timerBVal));
                     if (parseBoard(j->response.data, game.board))
                     {
                         const bool wasOurTurn = game.turn == game.player;
@@ -540,6 +615,131 @@ main_loop:
             {
                 snprintf(statusMsg, sizeof(statusMsg), "Polling failed (%ld): %s", j->httpCode,
                          j->curlError[0] ? j->curlError : "server unavailable");
+            }
+            netJobDestroy(j);
+        }
+
+        // Resolve the optimistic public-queue join. On success the queue
+        // screen we already jumped to just needed its status message
+        // updated; on failure, back out to the settings page with the error.
+        if (queueJoinJob && netJobReady(queueJoinJob))
+        {
+            NetJob *j = queueJoinJob;
+            queueJoinJob = nullptr;
+            const bool stale = queueJoinJobSession != gameSession;
+            queueJoinJobSession = 0;
+
+            if (!stale)
+            {
+                if (j->httpCode == 200)
+                {
+                    snprintf(statusMsg, sizeof(statusMsg), "Waiting for an opponent...");
+                }
+                else
+                {
+                    char errMsg[128] = {};
+                    if (!jsonExtract(j->response.data, "error", errMsg, sizeof(errMsg)))
+                        snprintf(errMsg, sizeof(errMsg), "Queue failed (%ld): %s", j->httpCode,
+                                 j->curlError[0] ? j->curlError : "server unavailable");
+                    queueing = false;
+                    lobbyPage = LobbyPage::PUBLIC_SETTINGS;
+                    focusIndex = 0;
+                    snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
+                }
+            }
+            netJobDestroy(j);
+        }
+
+        // Resolve the optimistic private-room creation. On success, fill in
+        // the room code on the waiting screen we already jumped to; on
+        // failure, back out to the create-room page with the error.
+        if (roomCreateJob && netJobReady(roomCreateJob))
+        {
+            NetJob *j = roomCreateJob;
+            roomCreateJob = nullptr;
+            const bool stale = roomCreateJobSession != gameSession;
+            roomCreateJobSession = 0;
+
+            if (!stale)
+            {
+                if (j->httpCode == 200)
+                {
+                    char codeVal[16] = {};
+                    char gameIdVal[64] = {};
+                    char timerWVal[8] = {};
+                    char timerBVal[8] = {};
+                    jsonExtract(j->response.data, "code", codeVal, sizeof(codeVal));
+                    jsonExtract(j->response.data, "gameId", gameIdVal, sizeof(gameIdVal));
+                    if (jsonExtract(j->response.data, "timerW", timerWVal, sizeof(timerWVal)) &&
+                        jsonExtract(j->response.data, "timerB", timerBVal, sizeof(timerBVal)))
+                        timerSync(atoi(timerWVal), atoi(timerBVal));
+                    snprintf(privateCode, sizeof(privateCode), "%s", codeVal);
+                    snprintf(pollingGameId, sizeof(pollingGameId), "%s", gameIdVal);
+                    snprintf(statusMsg, sizeof(statusMsg), "Room created — share code %s", codeVal);
+                }
+                else
+                {
+                    char errMsg[128] = {};
+                    if (!jsonExtract(j->response.data, "error", errMsg, sizeof(errMsg)))
+                        snprintf(errMsg, sizeof(errMsg), "Create failed (%ld): %s", j->httpCode,
+                                 j->curlError[0] ? j->curlError : "server unavailable");
+                    queueing = false;
+                    lobbyPage = LobbyPage::PRIVATE_CREATE;
+                    focusIndex = 0;
+                    snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
+                }
+            }
+            netJobDestroy(j);
+        }
+
+        // Resolve joining a private room by code. There's no safe "optimistic"
+        // destination here (a bad code must never drop the player into a
+        // stale/empty board), so this just enters the game once confirmed.
+        if (roomJoinJob && netJobReady(roomJoinJob))
+        {
+            NetJob *j = roomJoinJob;
+            roomJoinJob = nullptr;
+            const bool stale = roomJoinJobSession != gameSession;
+            roomJoinJobSession = 0;
+
+            if (!stale)
+            {
+                if (j->httpCode == 200 && parseBoard(j->response.data, game.board))
+                {
+                    char timerWVal[8] = {};
+                    char timerBVal[8] = {};
+                    jsonExtract(j->response.data, "gameId", pollingGameId, sizeof(pollingGameId));
+                    if (jsonExtract(j->response.data, "timerW", timerWVal, sizeof(timerWVal)) &&
+                        jsonExtract(j->response.data, "timerB", timerBVal, sizeof(timerBVal)))
+                        timerSync(atoi(timerWVal), atoi(timerBVal));
+                    game.player = 'B';
+                    game.turn = 'W';
+                    game.selectedRow = game.selectedCol = -1;
+                    game.targetRow = game.targetCol = -1;
+                    game.cursorRow = game.cursorCol = 0;
+                    game.pieceSelected = false;
+                    game.confirmMove = false;
+                    game.gameOver = false;
+                    game.winner = 0;
+                    game.flashTimer = 0;
+                    game.isOnline = true;
+                    game.statusMsg = "Private match started";
+                    onlineGame = true;
+                    gameActive = true;
+                    queueing = false;
+                    lobbyPage = LobbyPage::HOME;
+                    privateCode[0] = 0;
+                    joinCode[0] = 0;
+                    focusIndex = 0;
+                }
+                else
+                {
+                    char errMsg[128] = {};
+                    if (!jsonExtract(j->response.data, "error", errMsg, sizeof(errMsg)))
+                        snprintf(errMsg, sizeof(errMsg), "Join failed (%ld): %s", j->httpCode,
+                                 j->curlError[0] ? j->curlError : "server unavailable");
+                    snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
+                }
             }
             netJobDestroy(j);
         }
@@ -876,54 +1076,24 @@ main_loop:
                         snprintf(statusMsg, sizeof(statusMsg), "Variant changed");
                     }
                 }
-                else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_JOIN)
+                else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_JOIN && !roomJoinJob)
                 {
                     if (showKeyboard("Join code (e.g. APPLE123)", joinCode, sizeof(joinCode)))
                     {
                         snprintf(statusMsg, sizeof(statusMsg), "Joining room...");
-                        renderFrame(touch.px, touch.py, touchHeld);
                         char joinJson[160];
                         snprintf(joinJson, sizeof(joinJson), "{\"authCode\":\"%s\",\"code\":\"%s\"}", savedAuthCode, joinCode);
-                        NetCall joinCall(NetOp::POST, "/api/3ds/private/join", joinJson);
-                        long joinHttp = joinCall.code();
-                        if (joinHttp == 200 && parseBoard(joinCall.data(), game.board))
+                        roomJoinJob = netJobCreate(NetOp::POST, "/api/3ds/private/join", joinJson);
+                        if (roomJoinJob)
                         {
-                            jsonExtract(joinCall.data(), "gameId", pollingGameId, sizeof(pollingGameId));
-                            game.player = 'B';
-                            game.turn = 'W';
-                            game.selectedRow = game.selectedCol = -1;
-                            game.targetRow = game.targetCol = -1;
-                            game.cursorRow = game.cursorCol = 0;
-                            game.pieceSelected = false;
-                            game.confirmMove = false;
-                            game.gameOver = false;
-                            game.winner = 0;
-                            game.flashTimer = 0;
-                            game.isOnline = true;
-                            game.statusMsg = "Private match started";
-                            onlineGame = true;
-                            gameActive = true;
-                            queueing = false;
-                            lobbyPage = LobbyPage::HOME;
-                            privateCode[0] = 0;
-                            joinCode[0] = 0;
-                            focusIndex = 0;
-                        }
-                        else
-                        {
-                            char errMsg[128] = {};
-                            if (!jsonExtract(joinCall.data(), "error", errMsg, sizeof(errMsg)))
-                                snprintf(errMsg, sizeof(errMsg), "Join failed (%ld): %s", joinHttp,
-                                         joinCall.cerr()[0] ? joinCall.cerr() : "server unavailable");
-                            snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
+                            roomJoinJobSession = gameSession;
+                            netJobSubmit(roomJoinJob);
                         }
                     }
                 }
-                else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_CREATE)
+                else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_CREATE && !roomCreateJob)
                 {
                     static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
-                    snprintf(statusMsg, sizeof(statusMsg), "Creating room...");
-                    renderFrame(touch.px, touch.py, touchHeld);
                     char createJson[160];
                     snprintf(createJson, sizeof(createJson),
                              "{\"authCode\":\"%s\",\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
@@ -931,37 +1101,25 @@ main_loop:
                              variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
                              variant == 2 ? "random_setup" : "schizophrenic",
                              isRated ? "true" : "false");
-                    NetCall createCall(NetOp::POST, "/api/3ds/private/create", createJson);
-                    long createHttp = createCall.code();
-                    if (createHttp == 200)
+                    roomCreateJob = netJobCreate(NetOp::POST, "/api/3ds/private/create", createJson);
+                    if (roomCreateJob)
                     {
-                        char codeVal[16] = {};
-                        char gameIdVal[64] = {};
-                        jsonExtract(createCall.data(), "code", codeVal, sizeof(codeVal));
-                        jsonExtract(createCall.data(), "gameId", gameIdVal, sizeof(gameIdVal));
-                        snprintf(privateCode, sizeof(privateCode), "%s", codeVal);
-                        snprintf(pollingGameId, sizeof(pollingGameId), "%s", gameIdVal);
+                        roomCreateJobSession = gameSession;
+                        netJobSubmit(roomCreateJob);
+                        // Optimistic navigation: jump to the waiting room now — the
+                        // code fills in once the response arrives below.
+                        privateCode[0] = 0;
                         queueing = true;
                         lobbyPage = LobbyPage::PRIVATE_WAIT;
                         focusIndex = 0;
-                        snprintf(statusMsg, sizeof(statusMsg), "Room created — share code %s", codeVal);
-                    }
-                    else
-                    {
-                        char errMsg[128] = {};
-                        if (!jsonExtract(createCall.data(), "error", errMsg, sizeof(errMsg)))
-                            snprintf(errMsg, sizeof(errMsg), "Create failed (%ld): %s", createHttp,
-                                     createCall.cerr()[0] ? createCall.cerr() : "server unavailable");
-                        snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
+                        snprintf(statusMsg, sizeof(statusMsg), "Creating room...");
                     }
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py))
                 {
-                    if (lobbyPage == LobbyPage::PUBLIC_SETTINGS)
+                    if (lobbyPage == LobbyPage::PUBLIC_SETTINGS && !queueJoinJob)
                     {
                         static const char *queueTimes[] = {"0.25|3", "1|0", "3|2"};
-                        snprintf(statusMsg, sizeof(statusMsg), "Joining matchmaking...");
-                        renderFrame(touch.px, touch.py, touchHeld);
                         char queueJson[160];
                         snprintf(queueJson, sizeof(queueJson),
                                  "{\"authCode\":\"%s\",\"timeControl\":\"%s\",\"variant\":\"%s\",\"isRated\":%s}",
@@ -969,23 +1127,19 @@ main_loop:
                                  variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
                                  variant == 2 ? "random_setup" : "schizophrenic",
                                  isRated ? "true" : "false");
-                        NetCall queueCall(NetOp::POST, "/api/3ds/queue", queueJson);
-                        long queueHttp = queueCall.code();
-                        if (queueHttp == 200)
+                        queueJoinJob = netJobCreate(NetOp::POST, "/api/3ds/queue", queueJson);
+                        if (queueJoinJob)
                         {
+                            queueJoinJobSession = gameSession;
+                            netJobSubmit(queueJoinJob);
+                            // Optimistic navigation: jump straight to the queue screen.
                             queueing = true;
                             lobbyPage = LobbyPage::QUEUE;
                             focusIndex = 0;
-                            snprintf(statusMsg, sizeof(statusMsg), "Waiting for an opponent...");
-                        }
-                        else
-                        {
-                            snprintf(statusMsg, sizeof(statusMsg), "Queue failed (%ld): %s", queueHttp,
-                                     queueCall.cerr()[0] ? queueCall.cerr() : "server unavailable");
-                            state = AppState::ERROR_STATE;
+                            snprintf(statusMsg, sizeof(statusMsg), "Joining matchmaking...");
                         }
                     }
-                    else
+                    else if (lobbyPage != LobbyPage::PUBLIC_SETTINGS)
                         snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Settings saved", username, elo);
                 }
                 if (lobbyPage != pageBefore)

@@ -465,6 +465,22 @@ static void drawGameInstructionRow(uint8_t *fb, int x, int y, const char *badge,
     drawText(fb, TOP_W, TOP_H, x + (int)strlen(badge) * 8 + 24, y + 4, text, 1, C_TEXT);
 }
 
+static void drawTimerBadge(uint8_t *fb, int x, int w, const char *label, int seconds, bool active)
+{
+    const int y = 3, h = 18;
+    if (seconds < 0) seconds = 0;
+    const bool low = active && seconds < 10;
+    // Ticking clock pops against the brown title bar (gold, or red when
+    // critical); the paused clock stays a subtle darker pill.
+    Color bg   = low ? C_ERROR : (active ? C_ACCENT : darken(C_PRIMARY, 0.3f));
+    Color text = low ? C_PRIMARY_TXT : (active ? C_TEXT : C_PRIMARY_TXT);
+    fillRoundRect(fb, TOP_W, TOP_H, x, y, w, h, h / 2, bg);
+    char line[16];
+    snprintf(line, sizeof(line), "%s %d:%02d", label, seconds / 60, seconds % 60);
+    int textW = (int)strlen(line) * 8;
+    drawText(fb, TOP_W, TOP_H, x + (w - textW) / 2, y + (h - 8) / 2, line, 1, text);
+}
+
 void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
 {
     clearScreen(fb, TOP_W, TOP_H, C_BG);
@@ -488,7 +504,13 @@ void drawGameTopScreen(uint8_t *fb, const GameUiState &game)
 
     fillRect(fb, TOP_W, TOP_H, 0, 0, TOP_W, 25, C_PRIMARY);
     drawTextBold(fb, TOP_W, TOP_H, 8, 8, "SLIDE", 1, C_PRIMARY_TXT);
-    drawText(fb, TOP_W, TOP_H, 250, 8, game.turn == 'W' ? "WHITE TO MOVE" : "BLACK TO MOVE", 1, C_PRIMARY_TXT);
+    if (game.isOnline)
+    {
+        drawTimerBadge(fb, 208, 88, "WHITE", game.timerW, game.turn == 'W');
+        drawTimerBadge(fb, 304, 88, "BLACK", game.timerB, game.turn == 'B');
+    }
+    else
+        drawText(fb, TOP_W, TOP_H, 250, 8, game.turn == 'W' ? "WHITE TO MOVE" : "BLACK TO MOVE", 1, C_PRIMARY_TXT);
 
     if (game.confirmMove)
     {

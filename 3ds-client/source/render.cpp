@@ -32,6 +32,24 @@ void clearScreen(uint8_t *fb, int w, int h, Color c)
     fillRect(fb, w, h, 0, 0, w, h, c);
 }
 
+void drawPixelBlend(uint8_t *fb, int w, int h, int x, int y, Color c, float alpha)
+{
+    if (x < 0 || x >= w || y < 0 || y >= h) return;
+    if (alpha <= 0.0f) return;
+    if (alpha >= 1.0f) { drawPixel(fb, w, h, x, y, c); return; }
+    int offset = (x * h + (h - 1 - y)) * 3;
+    fb[offset + 0] = (uint8_t)(fb[offset + 0] * (1.0f - alpha) + c.b * alpha);
+    fb[offset + 1] = (uint8_t)(fb[offset + 1] * (1.0f - alpha) + c.g * alpha);
+    fb[offset + 2] = (uint8_t)(fb[offset + 2] * (1.0f - alpha) + c.r * alpha);
+}
+
+void fillRectBlend(uint8_t *fb, int w, int h, int x0, int y0, int rw, int rh, Color c, float alpha)
+{
+    for (int dy = 0; dy < rh; ++dy)
+        for (int dx = 0; dx < rw; ++dx)
+            drawPixelBlend(fb, w, h, x0 + dx, y0 + dy, c, alpha);
+}
+
 void drawRoundRect(uint8_t *fb, int w, int h,
                    int x0, int y0, int rw, int rh, int r, int thick, Color c)
 {

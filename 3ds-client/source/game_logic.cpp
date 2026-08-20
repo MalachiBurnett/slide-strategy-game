@@ -51,6 +51,8 @@ void resetGame(GameUiState &game, int selectedVariant)
     game.winner = 0;
     game.flashTimer = 0;
     game.statusMsg = "Local game";
+    game.timerW = 0;
+    game.timerB = 0;
 }
 
 bool hasLegalDestination(const GameUiState &game, int r, int c)
