@@ -10,10 +10,16 @@
  *   6. On approval: save authCode to SD card, enter game
  *   7. "Sign in on this device" → swkbd username + password → POST /api/login
  *
+ * Threading:
+ *   All networking runs on a dedicated worker thread (net.h / net.cpp). The
+ *   render/input loop enqueues NetJobs and never blocks on I/O: gameplay
+ *   status polls and move sends are handled asynchronously each frame, and
+ *   the client only polls the server while waiting for the OPPONENT's turn.
+ *
  * Modules:
  *   render      — pixel / text / QR drawing (render.h / render.cpp)
  *   font8x8     — 8×8 bitmap font data     (font8x8.h)
- *   net         — HTTP GET / POST via curl  (net.h / net.cpp)
+ *   net         — worker thread + HTTP GET/POST via curl (net.h / net.cpp)
  *   auth_store  — SD card auth code         (auth_store.h / auth_store.cpp)
  *   ui          — Button + screen layouts   (ui.h / ui.cpp)
  */
@@ -123,6 +129,26 @@ static void buildNetError(char *out, int outLen,
         snprintf(out, outLen, "Server error (HTTP %ld)", httpCode);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Blocking one-shot request helper. Submits a job on the network thread and
+// waits for it. The response buffer lives until the helper goes out of scope,
+// so parse the result before that.
+// ---------------------------------------------------------------------------
+struct NetCall
+{
+    NetJob *job;
+    NetCall(NetOp op, const char *path, const char *body = nullptr)
+    {
+        job = netJobCreate(op, path, body);
+        if (job) { netJobSubmit(job); netJobWait(job); }
+    }
+    ~NetCall() { netJobDestroy(job); }
+    long        code() const { return job ? job->httpCode : 0; }
+    const char *data() const { return job ? job->response.data : nullptr; }
+    CURLcode    curl() const { return job ? job->curlCode : CURLE_FAILED_INIT; }
+    const char *cerr() const { return job ? job->curlError : ""; }
+};
 
 static int focusCount(AppState state, LobbyPage page)
 {
@@ -474,7 +500,7 @@ static void applyGameMove(GameUiState &game)
 
 // Apply the move to the board immediately for instant UI feedback, then flag
 // the pending server send. The server's authoritative board replaces this
-// once the POST completes (see the sendPending block).
+// once the POST completes (see the moveJob block in the main loop).
 static void confirmOnlineMove(GameUiState &game, bool &sendPending)
 {
     game.board[game.targetRow][game.targetCol] = game.player;
@@ -509,9 +535,12 @@ int main()
     Result socResult = socInit(socBuf, SOC_BUF_SIZE);
     printf("[soc] socInit result: 0x%08lX\n", socResult);
 
-
-    // curl global init
+    // curl global init (must happen before any curl handle is created,
+    // including the ones on the network worker thread)
     curl_global_init(CURL_GLOBAL_ALL);
+
+    // All HTTP traffic is handled on this worker thread.
+    netThreadStart();
 
     // ---------------------------------------------------------------------------
     // Button layout
@@ -574,6 +603,20 @@ int main()
     u64  lastGameRepeatTick = 0;
     constexpr u64 GAME_REPEAT_TICKS = CPU_TICKS_PER_MSEC * 240;
 
+    // Async networking (worker thread)
+    NetJob *statusJob = nullptr;   // in-flight /api/3ds/status poll
+    NetJob *moveJob   = nullptr;   // in-flight /api/3ds/move send
+    NetJob *qrPollJob = nullptr;   // in-flight /api/external_login/poll
+    int moveFromR = 0, moveFromC = 0, moveToR = 0, moveToC = 0; // for revert on failure
+    bool forceStatusPoll = false;       // submit a status poll immediately
+    bool statusPollForMoveError = false;// status poll was triggered by a failed move
+    char moveErrorBuf[CURL_ERROR_SIZE] = {};
+    u64 gameSession = 0;                // bumped on exit so stale responses are ignored
+    u64 statusJobSession = 0;
+    u64 moveJobSession = 0;
+    NetJob *ffJobs[8] = {};
+    int ffCount = 0;
+
     static uint8_t qrTempBuf[qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     bool qrReady = false;
@@ -589,6 +632,16 @@ int main()
     constexpr u64 POLL_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 2000;
     int previousNavDx = 0;
     int previousNavDy = 0;
+
+    // Fire-and-forget request: submit on the worker thread, reap it later.
+    auto fireAndForget = [&](NetOp op, const char *path, const char *body)
+    {
+        if (ffCount < (int)(sizeof(ffJobs) / sizeof(ffJobs[0])))
+        {
+            NetJob *job = netJobCreate(op, path, body);
+            if (job) { netJobSubmit(job); ffJobs[ffCount++] = job; }
+        }
+    };
 
     // Render one frame from the current state.
     auto renderFrame = [&](int touchX, int touchY, bool touchActive)
@@ -647,24 +700,20 @@ int main()
         char json[80];
         snprintf(json, sizeof(json), "{\"authCode\":\"%s\"}", savedAuthCode);
 
-        CurlBuf  resp      = allocBuf();
-        CURLcode cc        = CURLE_OK;
-        char     cerr[CURL_ERROR_SIZE] = {};
-        long     code      = httpPost("/api/auth_code_login", json, resp, cc, cerr);
+        NetCall call(NetOp::POST, "/api/auth_code_login", json);
 
-        if (code == 200)
+        if (call.code() == 200)
         {
             char uname[64] = "Player";
             char idValue[16] = {};
-            jsonExtract(resp.data, "username", uname, sizeof(uname));
-            jsonExtract(resp.data, "id", idValue, sizeof(idValue));
-            jsonExtract(resp.data, "elo", elo, sizeof(elo));
+            jsonExtract(call.data(), "username", uname, sizeof(uname));
+            jsonExtract(call.data(), "id", idValue, sizeof(idValue));
+            jsonExtract(call.data(), "elo", elo, sizeof(elo));
             snprintf(username,  sizeof(username),  "%s", uname);
             snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
             state = AppState::LOGGED_IN;
         }
         // Any other code → fall through to QR login below
-        freeBuf(resp);
     }
 
     // ---------------------------------------------------------------------------
@@ -672,17 +721,14 @@ int main()
     // ---------------------------------------------------------------------------
     if (state == AppState::INIT)
     {
-        CurlBuf  resp = allocBuf();
-        CURLcode cc   = CURLE_OK;
-        char     cerr[CURL_ERROR_SIZE] = {};
-        long     code = httpGet("/api/external_login", resp, cc, cerr);
+        NetCall call(NetOp::GET, "/api/external_login");
 
-        if (code == 200 && resp.data)
+        if (call.code() == 200 && call.data())
         {
             char codeVal[12]  = {};
             char urlVal[128]  = {};
-            jsonExtract(resp.data, "code",     codeVal, sizeof(codeVal));
-            jsonExtract(resp.data, "loginUrl", urlVal,  sizeof(urlVal));
+            jsonExtract(call.data(), "code",     codeVal, sizeof(codeVal));
+            jsonExtract(call.data(), "loginUrl", urlVal,  sizeof(urlVal));
             snprintf(loginCode, sizeof(loginCode), "%s", codeVal);
             snprintf(loginUrl,  sizeof(loginUrl),  "%s", urlVal);
 
@@ -700,9 +746,8 @@ int main()
         else
         {
             state = AppState::ERROR_STATE;
-            buildNetError(statusMsg, sizeof(statusMsg), code, cc, cerr);
+            buildNetError(statusMsg, sizeof(statusMsg), call.code(), call.curl(), call.cerr());
         }
-        freeBuf(resp);
     }
 
     // ---------------------------------------------------------------------------
@@ -723,43 +768,65 @@ main_loop:
         circlePosition circle;
         hidCircleRead(&circle);
 
-        // Send a confirmed online move on the frame AFTER it was confirmed,
-        // so the "SENDING MOVE" page stays visible while the HTTP call runs.
-        if (sendPending)
+        // Reap any finished fire-and-forget network jobs (concede / leave /
+        // cancel) so their buffers are freed without blocking the loop.
+        {
+            int i = 0;
+            while (i < ffCount)
+            {
+                if (netJobReady(ffJobs[i]))
+                {
+                    netJobDestroy(ffJobs[i]);
+                    ffJobs[i] = ffJobs[ffCount - 1];
+                    --ffCount;
+                }
+                else ++i;
+            }
+        }
+
+        // Queue the confirmed online move on the network thread so the frame
+        // keeps rendering while the HTTP call runs.
+        if (sendPending && !moveJob)
         {
             sendPending = false;
+            moveFromR = game.selectedRow;
+            moveFromC = game.selectedCol;
+            moveToR = game.targetRow;
+            moveToC = game.targetCol;
             char moveJson[192];
             snprintf(moveJson, sizeof(moveJson),
                      "{\"authCode\":\"%s\",\"gameId\":\"%s\",\"from\":{\"r\":%d,\"c\":%d},\"to\":{\"r\":%d,\"c\":%d}}",
-                     savedAuthCode, pollingGameId, game.selectedRow, game.selectedCol,
-                     game.targetRow, game.targetCol);
-            CurlBuf moveResponse = allocBuf();
-            CURLcode moveCurl = CURLE_OK;
-            char moveError[CURL_ERROR_SIZE] = {};
-            long moveHttp = httpPost("/api/3ds/move", moveJson, moveResponse, moveCurl, moveError);
-            if (moveHttp != 200)
+                     savedAuthCode, pollingGameId, moveFromR, moveFromC, moveToR, moveToC);
+            moveJob = netJobCreate(NetOp::POST, "/api/3ds/move", moveJson);
+            if (moveJob)
             {
-                char serverError[160] = {};
-                jsonExtract(moveResponse.data, "error", serverError, sizeof(serverError));
-                snprintf(statusMsg, sizeof(statusMsg), "%s", serverError[0] ? serverError :
-                         (moveError[0] ? moveError : "Move failed"));
-                // Revert the optimistic move so the board shows reality again.
-                game.board[game.selectedRow][game.selectedCol] = game.player;
-                game.board[game.targetRow][game.targetCol] = '0';
-                game.confirmMove = false;
-                game.statusMsg = statusMsg;
+                moveJobSession = gameSession;
+                netJobSubmit(moveJob);
             }
-            else
+        }
+
+        // Handle the move response when the network thread finishes. The game
+        // can also be over at this point (opponent forfeited / timed out while
+        // it was our turn) — the server replies "Game is not active", which we
+        // resolve with an immediate status poll below.
+        if (moveJob && netJobReady(moveJob))
+        {
+            NetJob *j = moveJob;
+            moveJob = nullptr;
+            const bool stale = moveJobSession != gameSession;
+            moveJobSession = 0;
+
+            if (!stale && j->httpCode == 200)
             {
                 char respStatus[16] = {};
                 char respWinner[4] = {};
-                jsonExtract(moveResponse.data, "status", respStatus, sizeof(respStatus));
-                jsonExtract(moveResponse.data, "winner", respWinner, sizeof(respWinner));
+                jsonExtract(j->response.data, "status", respStatus, sizeof(respStatus));
+                jsonExtract(j->response.data, "winner", respWinner, sizeof(respWinner));
                 game.confirmMove = false;
                 game.pieceSelected = false;
                 game.selectedRow = game.selectedCol = -1;
                 game.targetRow = game.targetCol = -1;
-                if (parseBoard(moveResponse.data, game.board))
+                if (parseBoard(j->response.data, game.board))
                 {
                     if (strcmp(respStatus, "finished") == 0)
                     {
@@ -781,35 +848,70 @@ main_loop:
                     game.statusMsg = "Move sent. Waiting for server";
                 }
                 lastPollingTick = 0;
+                forceStatusPoll = true;
             }
-            freeBuf(moveResponse);
+            else if (!stale)
+            {
+                // Revert the optimistic move so the board shows reality again.
+                game.board[moveFromR][moveFromC] = game.player;
+                game.board[moveToR][moveToC] = '0';
+                game.confirmMove = false;
+                char serverError[160] = {};
+                jsonExtract(j->response.data, "error", serverError, sizeof(serverError));
+                snprintf(moveErrorBuf, sizeof(moveErrorBuf), "%s", serverError[0] ? serverError :
+                         (j->curlError[0] ? j->curlError : "Move failed"));
+                // The game may have ended while it was our turn — check status.
+                game.statusMsg = "Checking game status...";
+                forceStatusPoll = true;
+                statusPollForMoveError = true;
+            }
+            netJobDestroy(j);
         }
 
-        if (state == AppState::LOGGED_IN &&
-            (queueing || (onlineGame && !game.gameOver && !game.confirmMove)) &&
-            svcGetSystemTick() - lastPollingTick >= POLLING_INTERVAL_TICKS)
+        // Async status poll. Runs on the worker thread while the frame keeps
+        // rendering. We only poll while waiting for the OPPONENT — when it is
+        // our turn there is nothing the server can tell us, and any forfeit /
+        // timeout is detected when we send the move.
+        if (state == AppState::LOGGED_IN && !statusJob && !moveJob &&
+            (forceStatusPoll ||
+             (queueing || (onlineGame && !game.gameOver && game.turn != game.player))) &&
+            (forceStatusPoll || svcGetSystemTick() - lastPollingTick >= POLLING_INTERVAL_TICKS))
         {
             lastPollingTick = svcGetSystemTick();
+            forceStatusPoll = false;
             char pollJson[96];
             snprintf(pollJson, sizeof(pollJson), "{\"authCode\":\"%s\"}", savedAuthCode);
-            CurlBuf response = allocBuf();
-            CURLcode pollCurl = CURLE_OK;
-            char pollError[CURL_ERROR_SIZE] = {};
-            long pollHttp = httpPost("/api/3ds/status", pollJson, response, pollCurl, pollError);
-            if (pollHttp == 200 && response.data)
+            statusJob = netJobCreate(NetOp::POST, "/api/3ds/status", pollJson);
+            if (statusJob)
+            {
+                statusJobSession = gameSession;
+                netJobSubmit(statusJob);
+            }
+        }
+
+        if (statusJob && netJobReady(statusJob))
+        {
+            NetJob *j = statusJob;
+            statusJob = nullptr;
+            const bool stale = statusJobSession != gameSession;
+            const bool fromMoveError = statusPollForMoveError;
+            statusPollForMoveError = false;
+            statusJobSession = 0;
+
+            if (!stale && j->httpCode == 200 && j->response.data)
             {
                 char pollStatus[24] = {};
-                jsonExtract(response.data, "status", pollStatus, sizeof(pollStatus));
+                jsonExtract(j->response.data, "status", pollStatus, sizeof(pollStatus));
                 if (strcmp(pollStatus, "matched") == 0)
                 {
                     char color[4] = "W";
                     char turn[4] = "W";
                     char prevGameId[48] = {};
                     snprintf(prevGameId, sizeof(prevGameId), "%s", pollingGameId);
-                    jsonExtract(response.data, "gameId", pollingGameId, sizeof(pollingGameId));
-                    jsonExtract(response.data, "color", color, sizeof(color));
-                    jsonExtract(response.data, "turn", turn, sizeof(turn));
-                    if (parseBoard(response.data, game.board))
+                    jsonExtract(j->response.data, "gameId", pollingGameId, sizeof(pollingGameId));
+                    jsonExtract(j->response.data, "color", color, sizeof(color));
+                    jsonExtract(j->response.data, "turn", turn, sizeof(turn));
+                    if (parseBoard(j->response.data, game.board))
                     {
                         const bool wasOurTurn = game.turn == game.player;
                         game.player = color[0] == 'B' ? 'B' : 'W';
@@ -837,15 +939,22 @@ main_loop:
                         gameActive = true;
                         lobbyPage = LobbyPage::HOME;
                     }
+                    // A failed move send means the board was reverted; if the
+                    // game is still active and it's our turn, surface the error.
+                    if (fromMoveError && game.turn == game.player)
+                    {
+                        snprintf(statusMsg, sizeof(statusMsg), "%s", moveErrorBuf);
+                        game.statusMsg = statusMsg;
+                    }
                 }
                 else if (strcmp(pollStatus, "finished") == 0)
                 {
                     char color[4] = "W";
                     char winner[4] = {};
-                    jsonExtract(response.data, "gameId", pollingGameId, sizeof(pollingGameId));
-                    jsonExtract(response.data, "color", color, sizeof(color));
-                    jsonExtract(response.data, "winner", winner, sizeof(winner));
-                    if (parseBoard(response.data, game.board))
+                    jsonExtract(j->response.data, "gameId", pollingGameId, sizeof(pollingGameId));
+                    jsonExtract(j->response.data, "color", color, sizeof(color));
+                    jsonExtract(j->response.data, "winner", winner, sizeof(winner));
+                    if (parseBoard(j->response.data, game.board))
                     {
                         game.player = color[0] == 'B' ? 'B' : 'W';
                         game.selectedRow = game.selectedCol = -1;
@@ -872,12 +981,12 @@ main_loop:
                     onlineGame = false;
                 }
             }
-            else if (pollHttp != 409)
+            else if (!stale && j->httpCode != 409)
             {
-                snprintf(statusMsg, sizeof(statusMsg), "Polling failed (%ld): %s", pollHttp,
-                         pollError[0] ? pollError : "server unavailable");
+                snprintf(statusMsg, sizeof(statusMsg), "Polling failed (%ld): %s", j->httpCode,
+                         j->curlError[0] ? j->curlError : "server unavailable");
             }
-            freeBuf(response);
+            netJobDestroy(j);
         }
 
         int navDx = 0, navDy = 0;
@@ -914,14 +1023,10 @@ main_loop:
             if (lobbyPage == LobbyPage::PRIVATE_WAIT)
             {
                 snprintf(statusMsg, sizeof(statusMsg), "Leaving room...");
-                renderFrame(touch.px, touch.py, touchHeld);
                 char cancelJson[96];
                 snprintf(cancelJson, sizeof(cancelJson), "{\"authCode\":\"%s\"}", savedAuthCode);
-                CurlBuf cancelResponse = allocBuf();
-                CURLcode cancelCurl = CURLE_OK;
-                char cancelError[CURL_ERROR_SIZE] = {};
-                httpPost("/api/3ds/private/cancel", cancelJson, cancelResponse, cancelCurl, cancelError);
-                freeBuf(cancelResponse);
+                fireAndForget(NetOp::POST, "/api/3ds/private/cancel", cancelJson);
+                ++gameSession;
                 queueing = false;
                 privateCode[0] = 0;
             }
@@ -975,19 +1080,15 @@ main_loop:
                 if (onlineGame && !game.gameOver)
                 {
                     game.statusMsg = "Forfeiting...";
-                    renderFrame(touch.px, touch.py, touchHeld);
                     char concedeJson[128];
                     snprintf(concedeJson, sizeof(concedeJson),
                              "{\"authCode\":\"%s\",\"gameId\":\"%s\"}", savedAuthCode, pollingGameId);
-                    CurlBuf concedeResponse = allocBuf();
-                    CURLcode concedeCurl = CURLE_OK;
-                    char concedeError[CURL_ERROR_SIZE] = {};
-                    httpPost("/api/3ds/concede", concedeJson, concedeResponse, concedeCurl, concedeError);
-                    freeBuf(concedeResponse);
+                    fireAndForget(NetOp::POST, "/api/3ds/concede", concedeJson);
                     onlineGame = false;
                     game.isOnline = false;
                     gameActive = false;
                     queueing = false;
+                    ++gameSession;
                     lobbyPage = LobbyPage::HOME;
                     snprintf(statusMsg, sizeof(statusMsg), "You forfeited the game");
                 }
@@ -997,6 +1098,7 @@ main_loop:
                     onlineGame = false;
                     queueing = false;
                     game.isOnline = false;
+                    ++gameSession;
                     statusMsg[0] = 0;
                 }
                 goto render;
@@ -1016,6 +1118,7 @@ main_loop:
                     onlineGame = false;
                     queueing = false;
                     game.isOnline = false;
+                    ++gameSession;
                     statusMsg[0] = 0;
                 }
             }
@@ -1095,16 +1198,13 @@ main_loop:
                 snprintf(statusMsg, sizeof(statusMsg), "Signing out...");
                 renderFrame(touch.px, touch.py, touchHeld);
 
-                CurlBuf resp = allocBuf();
-                CURLcode cc = CURLE_OK;
-                char cerr[CURL_ERROR_SIZE] = {};
-                long http = httpGet("/api/external_login", resp, cc, cerr);
-                if (http == 200 && resp.data)
+                NetCall call(NetOp::GET, "/api/external_login");
+                if (call.code() == 200 && call.data())
                 {
                     char codeVal[12] = {};
                     char urlVal[128] = {};
-                    jsonExtract(resp.data, "code", codeVal, sizeof(codeVal));
-                    jsonExtract(resp.data, "loginUrl", urlVal, sizeof(urlVal));
+                    jsonExtract(call.data(), "code", codeVal, sizeof(codeVal));
+                    jsonExtract(call.data(), "loginUrl", urlVal, sizeof(urlVal));
                     snprintf(loginCode, sizeof(loginCode), "%s", codeVal);
                     snprintf(loginUrl, sizeof(loginUrl), "%s", urlVal);
                     memset(qrTempBuf, 0, sizeof(qrTempBuf));
@@ -1118,9 +1218,8 @@ main_loop:
                 else
                 {
                     state = AppState::ERROR_STATE;
-                    buildNetError(statusMsg, sizeof(statusMsg), http, cc, cerr);
+                    buildNetError(statusMsg, sizeof(statusMsg), call.code(), call.curl(), call.cerr());
                 }
-                freeBuf(resp);
                 focusIndex = 0;
             }
             else if (state == AppState::LOGGED_IN)
@@ -1165,14 +1264,10 @@ main_loop:
                 else if (lobbyPage == LobbyPage::QUEUE && buttonHit(cancelQueue, touch.px, touch.py))
                 {
                     snprintf(statusMsg, sizeof(statusMsg), "Leaving queue...");
-                    renderFrame(touch.px, touch.py, touchHeld);
                     char leaveJson[96];
                     snprintf(leaveJson, sizeof(leaveJson), "{\"authCode\":\"%s\"}", savedAuthCode);
-                    CurlBuf leaveResponse = allocBuf();
-                    CURLcode leaveCurl = CURLE_OK;
-                    char leaveError[CURL_ERROR_SIZE] = {};
-                    httpPost("/api/3ds/leave", leaveJson, leaveResponse, leaveCurl, leaveError);
-                    freeBuf(leaveResponse);
+                    fireAndForget(NetOp::POST, "/api/3ds/leave", leaveJson);
+                    ++gameSession;
                     queueing = false;
                     lobbyPage = LobbyPage::HOME;
                     statusMsg[0] = 0;
@@ -1181,14 +1276,10 @@ main_loop:
                 else if (lobbyPage == LobbyPage::PRIVATE_WAIT && buttonHit(cancelPrivate, touch.px, touch.py))
                 {
                     snprintf(statusMsg, sizeof(statusMsg), "Leaving room...");
-                    renderFrame(touch.px, touch.py, touchHeld);
                     char cancelJson[96];
                     snprintf(cancelJson, sizeof(cancelJson), "{\"authCode\":\"%s\"}", savedAuthCode);
-                    CurlBuf cancelResponse = allocBuf();
-                    CURLcode cancelCurl = CURLE_OK;
-                    char cancelError[CURL_ERROR_SIZE] = {};
-                    httpPost("/api/3ds/private/cancel", cancelJson, cancelResponse, cancelCurl, cancelError);
-                    freeBuf(cancelResponse);
+                    fireAndForget(NetOp::POST, "/api/3ds/private/cancel", cancelJson);
+                    ++gameSession;
                     queueing = false;
                     privateCode[0] = 0;
                     lobbyPage = LobbyPage::PRIVATE_CHOICE;
@@ -1238,13 +1329,11 @@ main_loop:
                         renderFrame(touch.px, touch.py, touchHeld);
                         char joinJson[160];
                         snprintf(joinJson, sizeof(joinJson), "{\"authCode\":\"%s\",\"code\":\"%s\"}", savedAuthCode, joinCode);
-                        CurlBuf joinResponse = allocBuf();
-                        CURLcode joinCurl = CURLE_OK;
-                        char joinError[CURL_ERROR_SIZE] = {};
-                        long joinHttp = httpPost("/api/3ds/private/join", joinJson, joinResponse, joinCurl, joinError);
-                        if (joinHttp == 200 && parseBoard(joinResponse.data, game.board))
+                        NetCall joinCall(NetOp::POST, "/api/3ds/private/join", joinJson);
+                        long joinHttp = joinCall.code();
+                        if (joinHttp == 200 && parseBoard(joinCall.data(), game.board))
                         {
-                            jsonExtract(joinResponse.data, "gameId", pollingGameId, sizeof(pollingGameId));
+                            jsonExtract(joinCall.data(), "gameId", pollingGameId, sizeof(pollingGameId));
                             game.player = 'B';
                             game.turn = 'W';
                             game.selectedRow = game.selectedCol = -1;
@@ -1268,12 +1357,11 @@ main_loop:
                         else
                         {
                             char errMsg[128] = {};
-                            if (!jsonExtract(joinResponse.data, "error", errMsg, sizeof(errMsg)))
+                            if (!jsonExtract(joinCall.data(), "error", errMsg, sizeof(errMsg)))
                                 snprintf(errMsg, sizeof(errMsg), "Join failed (%ld): %s", joinHttp,
-                                         joinError[0] ? joinError : "server unavailable");
+                                         joinCall.cerr()[0] ? joinCall.cerr() : "server unavailable");
                             snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
                         }
-                        freeBuf(joinResponse);
                     }
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py) && lobbyPage == LobbyPage::PRIVATE_CREATE)
@@ -1288,16 +1376,14 @@ main_loop:
                              variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
                              variant == 2 ? "random_setup" : "schizophrenic",
                              isRated ? "true" : "false");
-                    CurlBuf createResponse = allocBuf();
-                    CURLcode createCurl = CURLE_OK;
-                    char createCurlError[CURL_ERROR_SIZE] = {};
-                    long createHttp = httpPost("/api/3ds/private/create", createJson, createResponse, createCurl, createCurlError);
+                    NetCall createCall(NetOp::POST, "/api/3ds/private/create", createJson);
+                    long createHttp = createCall.code();
                     if (createHttp == 200)
                     {
                         char codeVal[16] = {};
                         char gameIdVal[64] = {};
-                        jsonExtract(createResponse.data, "code", codeVal, sizeof(codeVal));
-                        jsonExtract(createResponse.data, "gameId", gameIdVal, sizeof(gameIdVal));
+                        jsonExtract(createCall.data(), "code", codeVal, sizeof(codeVal));
+                        jsonExtract(createCall.data(), "gameId", gameIdVal, sizeof(gameIdVal));
                         snprintf(privateCode, sizeof(privateCode), "%s", codeVal);
                         snprintf(pollingGameId, sizeof(pollingGameId), "%s", gameIdVal);
                         queueing = true;
@@ -1308,12 +1394,11 @@ main_loop:
                     else
                     {
                         char errMsg[128] = {};
-                        if (!jsonExtract(createResponse.data, "error", errMsg, sizeof(errMsg)))
+                        if (!jsonExtract(createCall.data(), "error", errMsg, sizeof(errMsg)))
                             snprintf(errMsg, sizeof(errMsg), "Create failed (%ld): %s", createHttp,
-                                     createCurlError[0] ? createCurlError : "server unavailable");
+                                     createCall.cerr()[0] ? createCall.cerr() : "server unavailable");
                         snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
                     }
-                    freeBuf(createResponse);
                 }
                 else if (buttonHit(continueButton, touch.px, touch.py))
                 {
@@ -1329,10 +1414,8 @@ main_loop:
                                  variant == 0 ? "classic" : variant == 1 ? "fog_of_war" :
                                  variant == 2 ? "random_setup" : "schizophrenic",
                                  isRated ? "true" : "false");
-                        CurlBuf queueResponse = allocBuf();
-                        CURLcode queueCurl = CURLE_OK;
-                        char queueCurlError[CURL_ERROR_SIZE] = {};
-                        long queueHttp = httpPost("/api/3ds/queue", queueJson, queueResponse, queueCurl, queueCurlError);
+                        NetCall queueCall(NetOp::POST, "/api/3ds/queue", queueJson);
+                        long queueHttp = queueCall.code();
                         if (queueHttp == 200)
                         {
                             queueing = true;
@@ -1343,10 +1426,9 @@ main_loop:
                         else
                         {
                             snprintf(statusMsg, sizeof(statusMsg), "Queue failed (%ld): %s", queueHttp,
-                                     queueCurlError[0] ? queueCurlError : "server unavailable");
+                                     queueCall.cerr()[0] ? queueCall.cerr() : "server unavailable");
                             state = AppState::ERROR_STATE;
                         }
-                        freeBuf(queueResponse);
                     }
                     else
                         snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s  Settings saved", username, elo);
@@ -1380,27 +1462,23 @@ main_loop:
                 snprintf(statusMsg, sizeof(statusMsg), "Starting guest session...");
                 renderFrame(touch.px, touch.py, touchHeld);
 
-                CurlBuf resp = allocBuf();
-                CURLcode cc = CURLE_OK;
-                char cerr[CURL_ERROR_SIZE] = {};
-                long http = httpPost("/api/guest", "{}", resp, cc, cerr);
-                if (http == 200 && resp.data)
+                NetCall call(NetOp::POST, "/api/guest", "{}");
+                if (call.code() == 200 && call.data())
                 {
                     char guestName[64] = "Guest";
                     char idValue[16] = {};
-                    jsonExtract(resp.data, "username", guestName, sizeof(guestName));
-                    jsonExtract(resp.data, "id", idValue, sizeof(idValue));
-                    jsonExtract(resp.data, "elo", elo, sizeof(elo));
+                    jsonExtract(call.data(), "username", guestName, sizeof(guestName));
+                    jsonExtract(call.data(), "id", idValue, sizeof(idValue));
+                    jsonExtract(call.data(), "elo", elo, sizeof(elo));
                     snprintf(username, sizeof(username), "%s", guestName);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", guestName, elo);
                     state = AppState::LOGGED_IN;
                 }
                 else
                 {
-                    buildNetError(statusMsg, sizeof(statusMsg), http, cc, cerr);
+                    buildNetError(statusMsg, sizeof(statusMsg), call.code(), call.curl(), call.cerr());
                     state = AppState::ERROR_STATE;
                 }
-                freeBuf(resp);
             }
         }
 
@@ -1430,20 +1508,17 @@ main_loop:
                 snprintf(statusMsg, sizeof(statusMsg), "Signing in...");
                 renderFrame(touch.px, touch.py, touchHeld);
 
-                CurlBuf  resp = allocBuf();
-                CURLcode cc   = CURLE_OK;
-                char     cerr[CURL_ERROR_SIZE] = {};
-                long     http = httpPost("/api/device_login", json, resp, cc, cerr);
+                NetCall call(NetOp::POST, "/api/device_login", json);
 
-                if (http == 200)
+                if (call.code() == 200)
                 {
                     char uname[64] = "Player";
                     char ac[AUTHCODE_LEN + 2] = {};
                     char idValue[16] = {};
-                    jsonExtract(resp.data, "username", uname, sizeof(uname));
-                    jsonExtract(resp.data, "authCode", ac, sizeof(ac));
-                    jsonExtract(resp.data, "id", idValue, sizeof(idValue));
-                    jsonExtract(resp.data, "elo", elo, sizeof(elo));
+                    jsonExtract(call.data(), "username", uname, sizeof(uname));
+                    jsonExtract(call.data(), "authCode", ac, sizeof(ac));
+                    jsonExtract(call.data(), "id", idValue, sizeof(idValue));
+                    jsonExtract(call.data(), "elo", elo, sizeof(elo));
                     snprintf(username,  sizeof(username),  "%s", uname);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
                     if (ac[0]) { saveAuthCode(ac); snprintf(savedAuthCode, sizeof(savedAuthCode), "%s", ac); }
@@ -1452,17 +1527,16 @@ main_loop:
                 else
                 {
                     char errMsg[128] = {};
-                    if (!jsonExtract(resp.data, "error", errMsg, sizeof(errMsg)))
-                        buildNetError(errMsg, sizeof(errMsg), http, cc, cerr);
+                    if (!jsonExtract(call.data(), "error", errMsg, sizeof(errMsg)))
+                        buildNetError(errMsg, sizeof(errMsg), call.code(), call.curl(), call.cerr());
                     snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
                     state = AppState::ERROR_STATE;
                 }
-                freeBuf(resp);
             }
         }
 
-        // ----- Poll for QR approval -----
-        if (state == AppState::QR_LOGIN && loginCode[0])
+        // ----- Poll for QR approval (async, on the worker thread) -----
+        if (state == AppState::QR_LOGIN && loginCode[0] && !qrPollJob)
         {
             u64 now = svcGetSystemTick();
             if (now - lastPollTick >= POLL_INTERVAL_TICKS)
@@ -1472,89 +1546,90 @@ main_loop:
                 char json[32];
                 snprintf(json, sizeof(json), "{\"code\":\"%s\"}", loginCode);
 
-                CurlBuf  resp = allocBuf();
-                CURLcode cc   = CURLE_OK;
-                char     cerr[CURL_ERROR_SIZE] = {};
-                long     http = httpPost("/api/external_login/poll", json, resp, cc, cerr);
-
-                if (http == 200 && resp.data)
-                {
-                    char pollStatus[32] = {};
-                    jsonExtract(resp.data, "status", pollStatus, sizeof(pollStatus));
-
-                    if (strcmp(pollStatus, "approved") == 0)
-                    {
-                        char ac[AUTHCODE_LEN + 2] = {};
-                        char uname[64] = "Player";
-                        char idValue[16] = {};
-                        jsonExtract(resp.data, "authCode", ac, sizeof(ac));
-                        const char *userObj = strstr(resp.data, "\"user\":");
-                        if (userObj)
-                        {
-                            jsonExtract(userObj, "username", uname, sizeof(uname));
-                            jsonExtract(userObj, "elo", elo, sizeof(elo));
-                        }
-                        jsonExtract(resp.data, "id", idValue, sizeof(idValue));
-
-                        snprintf(username, sizeof(username), "%s", uname);
-                        if (ac[0]) { saveAuthCode(ac); snprintf(savedAuthCode, sizeof(savedAuthCode), "%s", ac); }
-
-                        state = AppState::LOGGED_IN;
-                        snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", username, elo);
-                    }
-                    else if (strcmp(pollStatus, "expired")   == 0 ||
-                             strcmp(pollStatus, "consumed")  == 0 ||
-                             strcmp(pollStatus, "not_found") == 0)
-                    {
-                        // Refresh the QR code
-                        qrReady    = false;
-                        loginCode[0] = 0;
-                        loginUrl[0]  = 0;
-
-                        CurlBuf  r2   = allocBuf();
-                        CURLcode cc2  = CURLE_OK;
-                        char     cerr2[CURL_ERROR_SIZE] = {};
-                        long     c2   = httpGet("/api/external_login", r2, cc2, cerr2);
-
-                        if (c2 == 200 && r2.data)
-                        {
-                            char cv[12]  = {};
-                            char uv[128] = {};
-                            jsonExtract(r2.data, "code",     cv, sizeof(cv));
-                            jsonExtract(r2.data, "loginUrl", uv, sizeof(uv));
-                            snprintf(loginCode, sizeof(loginCode), "%s", cv);
-                            snprintf(loginUrl,  sizeof(loginUrl),  "%s", uv);
-
-                            memset(qrTempBuf, 0, sizeof(qrTempBuf));
-                            memset(qrData,    0, sizeof(qrData));
-                            qrReady = qrcodegen_encodeText(
-                                loginUrl, qrTempBuf, qrData,
-                                qrcodegen_Ecc_LOW, 1, 5, qrcodegen_Mask_AUTO, false);
-                        }
-                        else
-                        {
-                            state = AppState::ERROR_STATE;
-                            buildNetError(statusMsg, sizeof(statusMsg), c2, cc2, cerr2);
-                        }
-                        freeBuf(r2);
-                    }
-                    // "pending" → do nothing, keep polling
-                }
-                else if (http == 0)
-                {
-                    // Transport error — show verbosely in status but keep trying
-                    buildNetError(statusMsg, sizeof(statusMsg), 0, cc, cerr);
-                }
-
-                freeBuf(resp);
+                qrPollJob = netJobCreate(NetOp::POST, "/api/external_login/poll", json);
+                if (qrPollJob) netJobSubmit(qrPollJob);
             }
+        }
+
+        if (qrPollJob && netJobReady(qrPollJob))
+        {
+            NetJob *j = qrPollJob;
+            qrPollJob = nullptr;
+
+            if (j->httpCode == 200 && j->response.data)
+            {
+                char pollStatus[32] = {};
+                jsonExtract(j->response.data, "status", pollStatus, sizeof(pollStatus));
+
+                if (strcmp(pollStatus, "approved") == 0)
+                {
+                    char ac[AUTHCODE_LEN + 2] = {};
+                    char uname[64] = "Player";
+                    char idValue[16] = {};
+                    jsonExtract(j->response.data, "authCode", ac, sizeof(ac));
+                    const char *userObj = strstr(j->response.data, "\"user\":");
+                    if (userObj)
+                    {
+                        jsonExtract(userObj, "username", uname, sizeof(uname));
+                        jsonExtract(userObj, "elo", elo, sizeof(elo));
+                    }
+                    jsonExtract(j->response.data, "id", idValue, sizeof(idValue));
+
+                    snprintf(username, sizeof(username), "%s", uname);
+                    if (ac[0]) { saveAuthCode(ac); snprintf(savedAuthCode, sizeof(savedAuthCode), "%s", ac); }
+
+                    state = AppState::LOGGED_IN;
+                    snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", username, elo);
+                }
+                else if (strcmp(pollStatus, "expired")   == 0 ||
+                         strcmp(pollStatus, "consumed")  == 0 ||
+                         strcmp(pollStatus, "not_found") == 0)
+                {
+                    // Refresh the QR code
+                    qrReady    = false;
+                    loginCode[0] = 0;
+                    loginUrl[0]  = 0;
+
+                    NetCall refresh(NetOp::GET, "/api/external_login");
+
+                    if (refresh.code() == 200 && refresh.data())
+                    {
+                        char cv[12]  = {};
+                        char uv[128] = {};
+                        jsonExtract(refresh.data(), "code",     cv, sizeof(cv));
+                        jsonExtract(refresh.data(), "loginUrl", uv, sizeof(uv));
+                        snprintf(loginCode, sizeof(loginCode), "%s", cv);
+                        snprintf(loginUrl,  sizeof(loginUrl),  "%s", uv);
+
+                        memset(qrTempBuf, 0, sizeof(qrTempBuf));
+                        memset(qrData,    0, sizeof(qrData));
+                        qrReady = qrcodegen_encodeText(
+                            loginUrl, qrTempBuf, qrData,
+                            qrcodegen_Ecc_LOW, 1, 5, qrcodegen_Mask_AUTO, false);
+                    }
+                    else
+                    {
+                        state = AppState::ERROR_STATE;
+                        buildNetError(statusMsg, sizeof(statusMsg), refresh.code(), refresh.curl(), refresh.cerr());
+                    }
+                }
+                // "pending" → do nothing, keep polling
+            }
+            else if (j->httpCode == 0)
+            {
+                // Transport error — show verbosely in status but keep trying
+                buildNetError(statusMsg, sizeof(statusMsg), 0, j->curlCode, j->curlError);
+            }
+
+            netJobDestroy(j);
         }
 
     render:
         renderFrame(touch.px, touch.py, touchHeld);
     }
 
-    curl_global_cleanup();
+    if (netThreadStop())
+        curl_global_cleanup();
     socExit();
     free(socBuf);
     gfxExit();
