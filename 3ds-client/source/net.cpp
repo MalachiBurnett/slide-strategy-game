@@ -156,39 +156,52 @@ long httpPost(const char *path,
 }
 
 // ---------------------------------------------------------------------------
-// Networking worker thread
+// Networking worker threads
 //
-// A single thread owns every libcurl handle (each request creates and frees
-// its own handle), so the render/input loop never blocks on I/O. The main
-// thread enqueues jobs; the worker executes them and signals completion.
+// Two independent queue/thread pairs, each owning its own libcurl handles
+// (a request creates and frees its own handle), so the render/input loop
+// never blocks on I/O:
+//   g_priorityQueue — moves, queue/room join, login: latency-sensitive
+//                     one-shot actions the player is actively waiting on.
+//   g_pollQueue     — status polling, QR-login polling: recurring
+//                     background checks that can tolerate extra latency.
+// Splitting these matters because a single shared queue meant a move
+// submitted while a status poll's curl_easy_perform was already running
+// would sit blocked behind that poll's full round-trip before even starting.
 // ---------------------------------------------------------------------------
-static LightLock       g_queueLock;
-static NetJob         *g_queueHead = nullptr;
-static NetJob         *g_queueTail = nullptr;
-static LightSemaphore  g_pendingJobs;
-static volatile bool   g_shutdown = false;
-static Thread          g_thread = nullptr;
+struct NetQueue
+{
+    LightLock      lock;
+    NetJob        *head;
+    NetJob        *tail;
+    LightSemaphore pending;
+    volatile bool  shutdown;
+    Thread         thread;
+};
+
+static NetQueue g_priorityQueue;
+static NetQueue g_pollQueue;
 
 static void netWorker(void *arg)
 {
-    (void)arg;
+    NetQueue *q = (NetQueue *)arg;
     while (true)
     {
-        LightSemaphore_Acquire(&g_pendingJobs, 1);
+        LightSemaphore_Acquire(&q->pending, 1);
 
-        LightLock_Lock(&g_queueLock);
-        if (g_shutdown)
+        LightLock_Lock(&q->lock);
+        if (q->shutdown)
         {
-            LightLock_Unlock(&g_queueLock);
+            LightLock_Unlock(&q->lock);
             break;
         }
-        NetJob *job = g_queueHead;
+        NetJob *job = q->head;
         if (job)
         {
-            g_queueHead = job->next;
-            if (!g_queueHead) g_queueTail = nullptr;
+            q->head = job->next;
+            if (!q->head) q->tail = nullptr;
         }
-        LightLock_Unlock(&g_queueLock);
+        LightLock_Unlock(&q->lock);
         if (!job) continue;
 
         long code = (job->op == NetOp::POST)
@@ -203,27 +216,54 @@ static void netWorker(void *arg)
     }
 }
 
+static void queueInit(NetQueue &q)
+{
+    LightLock_Init(&q.lock);
+    LightSemaphore_Init(&q.pending, 0, 32);
+    q.shutdown = false;
+    q.head = q.tail = nullptr;
+    q.thread = nullptr;
+}
+
+static bool queueStop(NetQueue &q)
+{
+    if (!q.thread) return true;
+    LightLock_Lock(&q.lock);
+    q.shutdown = true;
+    LightLock_Unlock(&q.lock);
+    LightSemaphore_Release(&q.pending, 1);
+    const s64 timeout = 3LL * 1000LL * 1000LL * 1000LL;
+    const Result res = threadJoin(q.thread, timeout);
+    threadFree(q.thread);
+    q.thread = nullptr;
+    return R_SUCCEEDED(res);
+}
+
+static void queueSubmit(NetQueue &q, NetJob *job)
+{
+    if (!job) return;
+    LightLock_Lock(&q.lock);
+    job->next = nullptr;
+    if (q.tail) q.tail->next = job;
+    else q.head = job;
+    q.tail = job;
+    LightLock_Unlock(&q.lock);
+    LightSemaphore_Release(&q.pending, 1);
+}
+
 void netThreadStart()
 {
-    LightLock_Init(&g_queueLock);
-    LightSemaphore_Init(&g_pendingJobs, 0, 32);
-    g_shutdown = false;
-    g_queueHead = g_queueTail = nullptr;
-    g_thread = threadCreate(netWorker, nullptr, 0x20000, 0x30, -1, false);
+    queueInit(g_priorityQueue);
+    queueInit(g_pollQueue);
+    g_priorityQueue.thread = threadCreate(netWorker, &g_priorityQueue, 0x20000, 0x30, -1, false);
+    g_pollQueue.thread     = threadCreate(netWorker, &g_pollQueue,     0x20000, 0x30, -1, false);
 }
 
 bool netThreadStop()
 {
-    if (!g_thread) return true;
-    LightLock_Lock(&g_queueLock);
-    g_shutdown = true;
-    LightLock_Unlock(&g_queueLock);
-    LightSemaphore_Release(&g_pendingJobs, 1);
-    const s64 timeout = 3LL * 1000LL * 1000LL * 1000LL;
-    const Result res = threadJoin(g_thread, timeout);
-    threadFree(g_thread);
-    g_thread = nullptr;
-    return R_SUCCEEDED(res);
+    const bool a = queueStop(g_priorityQueue);
+    const bool b = queueStop(g_pollQueue);
+    return a && b;
 }
 
 NetJob *netJobCreate(NetOp op, const char *path, const char *body)
@@ -240,17 +280,8 @@ NetJob *netJobCreate(NetOp op, const char *path, const char *body)
     return job;
 }
 
-void netJobSubmit(NetJob *job)
-{
-    if (!job) return;
-    LightLock_Lock(&g_queueLock);
-    job->next = nullptr;
-    if (g_queueTail) g_queueTail->next = job;
-    else g_queueHead = job;
-    g_queueTail = job;
-    LightLock_Unlock(&g_queueLock);
-    LightSemaphore_Release(&g_pendingJobs, 1);
-}
+void netJobSubmit(NetJob *job)     { queueSubmit(g_priorityQueue, job); }
+void netJobSubmitPoll(NetJob *job) { queueSubmit(g_pollQueue, job); }
 
 void netJobWait(NetJob *job)
 {

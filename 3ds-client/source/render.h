@@ -51,9 +51,16 @@ void fillRectBlend  (uint8_t *fb, int w, int h, int x0, int y0, int rw, int rh, 
 // Copies `src` into `dst` (both w×h, same layout as a framebuffer) shifted
 // horizontally by `shiftX` pixels — positive moves content right. Columns
 // that land outside [0, w) are left untouched in `dst`, so clear `dst` to
-// the background colour first if the uncovered area should show it. Used
-// for the slide-in/slide-out screen transition.
+// the background colour first if the uncovered area should show it.
 void blitShiftedX   (uint8_t *dst, const uint8_t *src, int w, int h, int shiftX);
+
+// Same idea, but confined to a rectangular region (rx,ry,rw,rh) of the
+// w×h image rather than the whole thing — lets different parts of a screen
+// slide independently, each along their own axis.
+void blitRegionShiftedX(uint8_t *dst, const uint8_t *src, int w, int h,
+                        int rx, int ry, int rw, int rh, int shiftX);
+void blitRegionShiftedY(uint8_t *dst, const uint8_t *src, int w, int h,
+                        int rx, int ry, int rw, int rh, int shiftY);
 void drawRoundRect  (uint8_t *fb, int w, int h,
                      int x0, int y0, int rw, int rh, int r, int thick, Color c);
 void fillRoundRect  (uint8_t *fb, int w, int h,

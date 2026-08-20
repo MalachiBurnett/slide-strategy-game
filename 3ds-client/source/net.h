@@ -7,10 +7,18 @@
  *   • Both httpGet and httpPost return the CURLcode and the human-readable
  *     error buffer so callers can surface a meaningful error message.
  *
- * All HTTP work runs on a dedicated worker thread (see netThreadStart) so the
- * render/input loop never stalls on network I/O. Callers create a NetJob,
+ * All HTTP work runs on two dedicated worker threads (see netThreadStart) so
+ * the render/input loop never stalls on network I/O. Callers create a NetJob,
  * submit it, then either block on it (netJobWait) for one-shot menu calls or
  * poll it each frame (netJobReady) for gameplay polling / move sending.
+ *
+ * Two threads, not one: background polling (status/QR) and latency-sensitive
+ * one-shot actions (moves, queue/room join, login) used to share a single
+ * FIFO queue, so a move submitted while a status poll's curl_easy_perform
+ * was already in flight would sit blocked behind it for the poll's full
+ * round-trip. netJobSubmit now goes on a dedicated "priority" queue/thread;
+ * netJobSubmitPoll is for the background pollers, which can tolerate the
+ * extra latency.
  */
 #ifndef NET_H
 #define NET_H
@@ -78,9 +86,10 @@ struct NetJob
 };
 
 void    netThreadStart();
-bool    netThreadStop();    // true if the worker actually exited before returning
+bool    netThreadStop();    // true if both workers actually exited before returning
 NetJob *netJobCreate(NetOp op, const char *path, const char *body);
-void    netJobSubmit(NetJob *job);      // enqueue, non-blocking
+void    netJobSubmit(NetJob *job);      // enqueue on the priority queue, non-blocking
+void    netJobSubmitPoll(NetJob *job);  // enqueue on the background-polling queue
 void    netJobWait(NetJob *job);        // block until the job is done
 bool    netJobReady(NetJob *job);       // non-blocking "is it done yet?"
 void    netJobDestroy(NetJob *job);     // frees response buffer + job

@@ -61,6 +61,43 @@ void blitShiftedX(uint8_t *dst, const uint8_t *src, int w, int h, int shiftX)
     }
 }
 
+void blitRegionShiftedX(uint8_t *dst, const uint8_t *src, int w, int h,
+                        int rx, int ry, int rw, int rh, int shiftX)
+{
+    // Rows [ry, ry+rh) sit at a contiguous byte range within each column
+    // (column-major layout with y flipped: byte-row d = h-1-y), so the
+    // whole region-row-window can move in one memcpy per column.
+    const size_t rowBytes = (size_t)rh * 3;
+    const size_t colByteOffset = (size_t)(h - ry - rh) * 3;
+    for (int x = rx; x < rx + rw; ++x)
+    {
+        int srcX = x - shiftX;
+        if (x < 0 || x >= w || srcX < 0 || srcX >= w) continue;
+        size_t dstBase = (size_t)x    * h * 3 + colByteOffset;
+        size_t srcBase = (size_t)srcX * h * 3 + colByteOffset;
+        memcpy(dst + dstBase, src + srcBase, rowBytes);
+    }
+}
+
+void blitRegionShiftedY(uint8_t *dst, const uint8_t *src, int w, int h,
+                        int rx, int ry, int rw, int rh, int shiftY)
+{
+    for (int y = ry; y < ry + rh; ++y)
+    {
+        int srcY = y - shiftY;
+        if (y < 0 || y >= h || srcY < ry || srcY >= ry + rh || srcY < 0 || srcY >= h) continue;
+        for (int x = rx; x < rx + rw; ++x)
+        {
+            if (x < 0 || x >= w) continue;
+            size_t dstOff = ((size_t)x * h + (h - 1 - y)) * 3;
+            size_t srcOff = ((size_t)x * h + (h - 1 - srcY)) * 3;
+            dst[dstOff + 0] = src[srcOff + 0];
+            dst[dstOff + 1] = src[srcOff + 1];
+            dst[dstOff + 2] = src[srcOff + 2];
+        }
+    }
+}
+
 void drawRoundRect(uint8_t *fb, int w, int h,
                    int x0, int y0, int rw, int rh, int r, int thick, Color c)
 {

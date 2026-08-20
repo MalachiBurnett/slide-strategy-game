@@ -79,6 +79,66 @@ static float easeOutBack(float t)
 }
 
 // ---------------------------------------------------------------------------
+// Screen-transition zones — each screen is carved into a few rectangles that
+// slide independently (rather than the whole screen moving as one block), in
+// whichever direction is closest to that rectangle's edge. A hard rule: the
+// top screen never slides DOWN and the bottom screen never slides UP, since
+// that would visually suggest sliding onto the other physical display.
+// ---------------------------------------------------------------------------
+enum class SlideDir { LEFT, RIGHT, UP, DOWN };
+
+struct SlideZone { int x, y, w, h; SlideDir dir; };
+
+// Title bar slides up; everything below it splits left/right down the
+// middle. Used for every top-screen layout (lobby, QR, game) — they all
+// share the same 25px bar.
+static constexpr SlideZone TOP_ZONES[] = {
+    {0, 0, TOP_W, 25, SlideDir::UP},
+    {0, 25, TOP_W / 2, TOP_H - 25, SlideDir::LEFT},
+    {TOP_W / 2, 25, TOP_W - TOP_W / 2, TOP_H - 25, SlideDir::RIGHT},
+};
+
+// Lobby bottom screen: the bottom-most strip (Quit and similar) slides down;
+// everything else splits left/right down the middle.
+static constexpr SlideZone BOTTOM_LOBBY_ZONES[] = {
+    {0, 0, BOT_W / 2, BOT_H - 32, SlideDir::LEFT},
+    {BOT_W / 2, 0, BOT_W - BOT_W / 2, BOT_H - 32, SlideDir::RIGHT},
+    {0, BOT_H - 32, BOT_W, 32, SlideDir::DOWN},
+};
+
+// In-game bottom screen is just the board — one cohesive block, slides down
+// (never up, per the same screen-crossing rule).
+static constexpr SlideZone BOTTOM_GAME_ZONES[] = {
+    {0, 0, BOT_W, BOT_H, SlideDir::DOWN},
+};
+
+static constexpr int TOP_ZONE_COUNT          = sizeof(TOP_ZONES) / sizeof(TOP_ZONES[0]);
+static constexpr int BOTTOM_LOBBY_ZONE_COUNT = sizeof(BOTTOM_LOBBY_ZONES) / sizeof(BOTTOM_LOBBY_ZONES[0]);
+static constexpr int BOTTOM_GAME_ZONE_COUNT  = sizeof(BOTTOM_GAME_ZONES) / sizeof(BOTTOM_GAME_ZONES[0]);
+
+// Blits one zone's content from `src` into `fb`, at animation progress `t`
+// (0..1). `entering`=false eases the zone off towards its direction
+// (accelerating); `entering`=true eases it in from that same direction with
+// an overshoot-and-settle bounce.
+static void drawZoneSlide(uint8_t *fb, const uint8_t *src, int w, int h,
+                          const SlideZone &z, float t, bool entering)
+{
+    const bool horizontal = (z.dir == SlideDir::LEFT || z.dir == SlideDir::RIGHT);
+    const int sign = (z.dir == SlideDir::LEFT || z.dir == SlideDir::UP) ? -1 : 1;
+    // Travel the zone's own size (not the full screen) — blitRegionShifted
+    // clips strictly to the zone's rectangle regardless, but this keeps the
+    // overshoot bounce's magnitude proportional to the zone itself rather
+    // than ballooning for small zones like the title bar.
+    const int dist = horizontal ? z.w : z.h;
+    const float frac = entering ? (1.0f - easeOutBack(t)) : easeInQuad(t);
+    const int shift = sign * (int)(frac * dist);
+    if (horizontal)
+        blitRegionShiftedX(fb, src, w, h, z.x, z.y, z.w, z.h, shift);
+    else
+        blitRegionShiftedY(fb, src, w, h, z.x, z.y, z.w, z.h, shift);
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main()
@@ -192,20 +252,22 @@ int main()
     u64 roomCreateJobSession = 0;
     u64 roomJoinJobSession   = 0;
 
-    // Screen transition: whenever the visible screen changes, the old page
-    // slides off, the screen holds briefly blank, then the new page slides
-    // on with an overshoot-and-settle bounce. animTopBuf/animBotBuf hold
-    // whichever page (old or new) is currently being blitted in from
-    // off-screen; see the transition block in renderFrame below.
+    // Screen transition: whenever a screen's own content changes, its zones
+    // slide off (see SlideZone above), the screen holds briefly blank, then
+    // the new content's zones slide back on with an overshoot-and-settle
+    // bounce. Top and bottom run entirely independent state machines, keyed
+    // off what actually affects each screen — e.g. winning a game changes
+    // the top screen's content but not the (already-final) board on the
+    // bottom, so only the top screen should animate.
     enum class TransitionPhase { NONE, EXIT, BLANK, ENTER };
     static constexpr int EXIT_FRAMES  = 8;  // ~133ms slide-out
     static constexpr int BLANK_FRAMES = 5;  // ~83ms blank hold
     static constexpr int ENTER_FRAMES = 16; // ~266ms slide-in with overshoot
     static uint8_t animTopBuf[TOP_W * TOP_H * 3];
     static uint8_t animBotBuf[BOT_W * BOT_H * 3];
-    TransitionPhase transitionPhase = TransitionPhase::NONE;
-    int transitionKey   = -1;
-    int transitionFrame = 0;
+    TransitionPhase topPhase = TransitionPhase::NONE, botPhase = TransitionPhase::NONE;
+    int topKey = -1, botKey = -1;
+    int topFrame = 0, botFrame = 0;
 
     // Match clock. The server is authoritative (timerSync snaps to its
     // values whenever a response includes them), but between requests we
@@ -275,84 +337,84 @@ int main()
             game.timerB = b < 0 ? 0 : b;
         }
 
-        auto drawPage = [&](uint8_t *tfb, uint8_t *bfb)
+        auto drawTop = [&](uint8_t *fb)
         {
             if (gameActive)
+                drawGameTopScreen(fb, game);
+            else
+                drawTopScreen(fb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg, privateCode);
+        };
+        auto drawBottom = [&](uint8_t *fb)
+        {
+            if (gameActive)
+                drawGameBottomScreen(fb, game);
+            else
+                drawBottomScreen(fb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
+                                 pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
+                                 BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive, privateCode);
+        };
+
+        // Drives one screen's independent transition state machine: on a key
+        // change, snapshot what's currently shown (stable for a couple of
+        // frames already, so it's a clean capture of the outgoing content)
+        // and slide its zones off; hold blank; render the new content into
+        // the scratch buffer and slide its zones on with an overshoot bounce.
+        auto runTransition = [&](uint8_t *fb, uint8_t *animBuf, int w, int h,
+                                 const SlideZone *zones, int zoneCount, int newKey,
+                                 TransitionPhase &phase, int &key, int &frame,
+                                 auto &&drawNew)
+        {
+            if (newKey != key)
             {
-                drawGameTopScreen(tfb, game);
-                drawGameBottomScreen(bfb, game);
+                memcpy(animBuf, fb, (size_t)w * h * 3);
+                key   = newKey;
+                phase = TransitionPhase::EXIT;
+                frame = 0;
+            }
+
+            if (phase == TransitionPhase::EXIT)
+            {
+                float t = (float)(frame + 1) / EXIT_FRAMES;
+                if (t > 1.0f) t = 1.0f;
+                clearScreen(fb, w, h, C_BG);
+                for (int i = 0; i < zoneCount; ++i)
+                    drawZoneSlide(fb, animBuf, w, h, zones[i], t, false);
+                if (++frame >= EXIT_FRAMES) { phase = TransitionPhase::BLANK; frame = 0; }
+            }
+            else if (phase == TransitionPhase::BLANK)
+            {
+                clearScreen(fb, w, h, C_BG);
+                if (++frame >= BLANK_FRAMES) { phase = TransitionPhase::ENTER; frame = 0; }
+            }
+            else if (phase == TransitionPhase::ENTER)
+            {
+                drawNew(animBuf);
+                float t = (float)(frame + 1) / ENTER_FRAMES;
+                if (t > 1.0f) t = 1.0f;
+                clearScreen(fb, w, h, C_BG);
+                for (int i = 0; i < zoneCount; ++i)
+                    drawZoneSlide(fb, animBuf, w, h, zones[i], t, true);
+                if (++frame >= ENTER_FRAMES) phase = TransitionPhase::NONE;
             }
             else
             {
-                drawTopScreen   (tfb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg, privateCode);
-                drawBottomScreen(bfb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
-                                 pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
-                                 BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive, privateCode);
+                drawNew(fb);
             }
         };
 
-        // Whenever the visible screen identity changes (page navigation,
-        // entering/leaving a game), snapshot whatever is currently displayed
-        // — it's been stable for at least a couple of frames, so this is a
-        // clean capture of the outgoing page — and start the slide-out.
-        int key = gameActive ? (1000 + (game.gameOver ? 1 : 0))
-                             : ((int)state * 100 + (int)lobbyPage);
-        if (key != transitionKey)
-        {
-            memcpy(animTopBuf, topFb, sizeof(animTopBuf));
-            memcpy(animBotBuf, botFb, sizeof(animBotBuf));
-            transitionKey   = key;
-            transitionPhase = TransitionPhase::EXIT;
-            transitionFrame = 0;
-        }
+        const SlideZone *botZones = gameActive ? BOTTOM_GAME_ZONES : BOTTOM_LOBBY_ZONES;
+        const int botZoneCount    = gameActive ? BOTTOM_GAME_ZONE_COUNT : BOTTOM_LOBBY_ZONE_COUNT;
 
-        if (transitionPhase == TransitionPhase::EXIT)
-        {
-            float t = (float)(transitionFrame + 1) / EXIT_FRAMES;
-            if (t > 1.0f) t = 1.0f;
-            int shiftTop = -(int)(easeInQuad(t) * TOP_W);
-            int shiftBot = -(int)(easeInQuad(t) * BOT_W);
-            clearScreen(topFb, TOP_W, TOP_H, C_BG);
-            clearScreen(botFb, BOT_W, BOT_H, C_BG);
-            blitShiftedX(topFb, animTopBuf, TOP_W, TOP_H, shiftTop);
-            blitShiftedX(botFb, animBotBuf, BOT_W, BOT_H, shiftBot);
-            if (++transitionFrame >= EXIT_FRAMES)
-            {
-                transitionPhase = TransitionPhase::BLANK;
-                transitionFrame = 0;
-            }
-        }
-        else if (transitionPhase == TransitionPhase::BLANK)
-        {
-            clearScreen(topFb, TOP_W, TOP_H, C_BG);
-            clearScreen(botFb, BOT_W, BOT_H, C_BG);
-            if (++transitionFrame >= BLANK_FRAMES)
-            {
-                transitionPhase = TransitionPhase::ENTER;
-                transitionFrame = 0;
-            }
-        }
-        else if (transitionPhase == TransitionPhase::ENTER)
-        {
-            // Render the new page into the scratch buffers, then slide it in
-            // from off-screen with an overshoot-and-settle bounce.
-            drawPage(animTopBuf, animBotBuf);
-            float t = (float)(transitionFrame + 1) / ENTER_FRAMES;
-            if (t > 1.0f) t = 1.0f;
-            float e = easeOutBack(t);
-            int shiftTop = (int)((1.0f - e) * TOP_W);
-            int shiftBot = (int)((1.0f - e) * BOT_W);
-            clearScreen(topFb, TOP_W, TOP_H, C_BG);
-            clearScreen(botFb, BOT_W, BOT_H, C_BG);
-            blitShiftedX(topFb, animTopBuf, TOP_W, TOP_H, shiftTop);
-            blitShiftedX(botFb, animBotBuf, BOT_W, BOT_H, shiftBot);
-            if (++transitionFrame >= ENTER_FRAMES)
-                transitionPhase = TransitionPhase::NONE;
-        }
-        else
-        {
-            drawPage(topFb, botFb);
-        }
+        // Keyed independently: winning a game changes the top screen (the
+        // win/lose panel) but not the bottom (same board either way), so
+        // only the top screen's key — which includes gameOver — changes.
+        const int newTopKey = gameActive ? (1000 + (game.gameOver ? 1 : 0)) : ((int)state * 100 + (int)lobbyPage);
+        const int newBotKey = gameActive ? 2000                            : ((int)state * 100 + (int)lobbyPage);
+
+        runTransition(topFb, animTopBuf, TOP_W, TOP_H, TOP_ZONES, TOP_ZONE_COUNT,
+                     newTopKey, topPhase, topKey, topFrame, drawTop);
+        runTransition(botFb, animBotBuf, BOT_W, BOT_H, botZones, botZoneCount,
+                     newBotKey, botPhase, botKey, botFrame, drawBottom);
 
         gfxFlushBuffers();
         gfxSwapBuffers();
@@ -598,7 +660,7 @@ main_loop:
             if (statusJob)
             {
                 statusJobSession = gameSession;
-                netJobSubmit(statusJob);
+                netJobSubmitPoll(statusJob);
             }
         }
 
@@ -1331,7 +1393,7 @@ main_loop:
                 snprintf(json, sizeof(json), "{\"code\":\"%s\"}", loginCode);
 
                 qrPollJob = netJobCreate(NetOp::POST, "/api/external_login/poll", json);
-                if (qrPollJob) netJobSubmit(qrPollJob);
+                if (qrPollJob) netJobSubmitPoll(qrPollJob);
             }
         }
 
