@@ -2,7 +2,8 @@
  * render.h — drawing primitives, 8×8 bitmap font, and QR rendering.
  * All functions operate directly on raw libctru framebuffers (column-major BGR).
  */
-#pragma once
+#ifndef RENDER_H
+#define RENDER_H
 
 #include <cstdint>
 #include <cstdlib>
@@ -59,3 +60,5 @@ void drawTextWrapped(uint8_t *fb, int fbW, int fbH,
 // QR code (Nayuki qrcodegen)
 // ---------------------------------------------------------------------------
 void renderQR(uint8_t *fb, const uint8_t *qrcode);
+
+#endif // RENDER_H

@@ -274,4 +274,30 @@ void netJobDestroy(NetJob *job)
     free(job);
 }
 
+// ---------------------------------------------------------------------------
+// NetCall / buildNetError
+// ---------------------------------------------------------------------------
+NetCall::NetCall(NetOp op, const char *path, const char *body)
+{
+    job = netJobCreate(op, path, body);
+    if (job) { netJobSubmit(job); netJobWait(job); }
+}
 
+NetCall::~NetCall() { netJobDestroy(job); }
+
+void buildNetError(char *out, int outLen,
+                    long httpCode, CURLcode curlCode,
+                    const char curlError[CURL_ERROR_SIZE])
+{
+    if (curlCode != CURLE_OK)
+    {
+        // Transport-level failure — show the curl symbolic name + detail string
+        const char *detail = (curlError && curlError[0]) ? curlError
+                                                         : curl_easy_strerror(curlCode);
+        snprintf(out, outLen, "Network error %d: %s", (int)curlCode, detail);
+    }
+    else
+    {
+        snprintf(out, outLen, "Server error (HTTP %ld)", httpCode);
+    }
+}

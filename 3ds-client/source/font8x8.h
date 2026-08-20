@@ -8,7 +8,8 @@
  * constexpr, so multiple inclusions are safe in C++ translation units
  * that use include guards, but you should only need it in render.cpp).
  */
-#pragma once
+#ifndef FONT8X8_H
+#define FONT8X8_H
 
 #include <cstdint>
 
@@ -109,3 +110,5 @@ static const uint8_t FONT8[95][8] = {
     {0x07,0x0C,0x0C,0x38,0x0C,0x0C,0x07,0x00}, // 125 '}'
     {0x6E,0x3B,0x00,0x00,0x00,0x00,0x00,0x00}, // 126 '~'
 };
+
+#endif // FONT8X8_H

@@ -1,7 +1,8 @@
 /*
  * auth_store.h — Save/load the persistent auth code on the SD card.
  */
-#pragma once
+#ifndef AUTH_STORE_H
+#define AUTH_STORE_H
 
 static constexpr const char *AUTHCODE_PATH = "/3ds/slide/authcode.txt";
 static constexpr int          AUTHCODE_LEN  = 32;
@@ -15,3 +16,5 @@ bool saveAuthCode(const char *code);
 
 // Remove the stored auth code (e.g. on logout).
 void deleteAuthCode();
+
+#endif // AUTH_STORE_H

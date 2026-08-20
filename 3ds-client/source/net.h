@@ -12,7 +12,8 @@
  * submit it, then either block on it (netJobWait) for one-shot menu calls or
  * poll it each frame (netJobReady) for gameplay polling / move sending.
  */
-#pragma once
+#ifndef NET_H
+#define NET_H
 
 #include <curl/curl.h>
 #include <3ds.h>
@@ -84,4 +85,28 @@ void    netJobWait(NetJob *job);        // block until the job is done
 bool    netJobReady(NetJob *job);       // non-blocking "is it done yet?"
 void    netJobDestroy(NetJob *job);     // frees response buffer + job
 
+// ---------------------------------------------------------------------------
+// Blocking one-shot request helper. Submits a job on the network thread and
+// waits for it. The response buffer lives until the helper goes out of scope,
+// so parse the result before that.
+// ---------------------------------------------------------------------------
+struct NetCall
+{
+    NetJob *job;
+    NetCall(NetOp op, const char *path, const char *body = nullptr);
+    ~NetCall();
+    long        code() const { return job ? job->httpCode : 0; }
+    const char *data() const { return job ? job->response.data : nullptr; }
+    CURLcode    curl() const { return job ? job->curlCode : CURLE_FAILED_INIT; }
+    const char *cerr() const { return job ? job->curlError : ""; }
+};
+
+// Builds a human-readable error string from an HTTP/curl result: a curl
+// transport failure (DNS, TLS, timeout…) reports the symbolic name + detail,
+// otherwise it reports the HTTP status code.
+void buildNetError(char *out, int outLen,
+                    long httpCode, CURLcode curlCode,
+                    const char curlError[CURL_ERROR_SIZE]);
+
+#endif // NET_H
 

@@ -1,7 +1,8 @@
 /*
  * ui.h — Button layout, top-screen and bottom-screen drawing.
  */
-#pragma once
+#ifndef UI_H
+#define UI_H
 
 #include "render.h"
 
@@ -97,3 +98,5 @@ void drawBottomScreen(uint8_t *fb, AppState state,
 
 void drawGameTopScreen(uint8_t *fb, const GameUiState &game);
 void drawGameBottomScreen(uint8_t *fb, const GameUiState &game);
+
+#endif // UI_H
