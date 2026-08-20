@@ -66,6 +66,19 @@ static bool showKeyboard(const char *hint, char *buf, int bufLen,
 }
 
 // ---------------------------------------------------------------------------
+// Easing curves for the screen-slide transition (see TransitionPhase below).
+// ---------------------------------------------------------------------------
+static float easeInQuad(float t) { return t * t; }
+
+static float easeOutBack(float t)
+{
+    constexpr float c1 = 1.70158f;
+    constexpr float c3 = c1 + 1.0f;
+    float p = t - 1.0f;
+    return 1.0f + c3 * p * p * p + c1 * p * p;
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main()
@@ -182,9 +195,18 @@ int main()
     u64 roomCreateJobSession = 0;
     u64 roomJoinJobSession   = 0;
 
-    // Short fade whenever the visible screen changes, so navigation (including
-    // the optimistic jumps above) feels alive instead of an instant cut.
-    static constexpr int TRANSITION_FRAMES = 10; // ~166ms at 60fps
+    // Screen transition: whenever the visible screen changes, the old page
+    // slides off, the screen holds briefly blank, then the new page slides
+    // on with an overshoot-and-settle bounce. animTopBuf/animBotBuf hold
+    // whichever page (old or new) is currently being blitted in from
+    // off-screen; see the transition block in renderFrame below.
+    enum class TransitionPhase { NONE, EXIT, BLANK, ENTER };
+    static constexpr int EXIT_FRAMES  = 8;  // ~133ms slide-out
+    static constexpr int BLANK_FRAMES = 5;  // ~83ms blank hold
+    static constexpr int ENTER_FRAMES = 16; // ~266ms slide-in with overshoot
+    static uint8_t animTopBuf[TOP_W * TOP_H * 3];
+    static uint8_t animBotBuf[BOT_W * BOT_H * 3];
+    TransitionPhase transitionPhase = TransitionPhase::NONE;
     int transitionKey   = -1;
     int transitionFrame = 0;
 
@@ -205,6 +227,7 @@ int main()
     bool pressedSignOut = false;
     bool pressedQuit   = false;
     bool returnToErrorAfterKeyboardCancel = false;
+    bool confirmingQuit = false;
 
     u64 lastPollTick = 0;
     constexpr u64 POLL_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 2000;
@@ -255,34 +278,83 @@ int main()
             game.timerB = b < 0 ? 0 : b;
         }
 
-        if (gameActive)
+        auto drawPage = [&](uint8_t *tfb, uint8_t *bfb)
         {
-            drawGameTopScreen(topFb, game);
-            drawGameBottomScreen(botFb, game);
-        }
-        else
-        {
-            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg, privateCode);
-            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
-                             pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
-                             BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive, privateCode);
-        }
+            if (gameActive)
+            {
+                drawGameTopScreen(tfb, game);
+                drawGameBottomScreen(bfb, game);
+            }
+            else
+            {
+                drawTopScreen   (tfb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg, privateCode);
+                drawBottomScreen(bfb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
+                                 pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
+                                 BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive, privateCode);
+            }
+        };
 
-        // Fade in over the top of whatever was just drawn whenever the
-        // screen identity changes (page navigation, entering/leaving a game).
+        // Whenever the visible screen identity changes (page navigation,
+        // entering/leaving a game), snapshot whatever is currently displayed
+        // — it's been stable for at least a couple of frames, so this is a
+        // clean capture of the outgoing page — and start the slide-out.
         int key = gameActive ? (1000 + (game.gameOver ? 1 : 0))
                              : ((int)state * 100 + (int)lobbyPage);
         if (key != transitionKey)
         {
+            memcpy(animTopBuf, topFb, sizeof(animTopBuf));
+            memcpy(animBotBuf, botFb, sizeof(animBotBuf));
             transitionKey   = key;
-            transitionFrame = TRANSITION_FRAMES;
+            transitionPhase = TransitionPhase::EXIT;
+            transitionFrame = 0;
         }
-        if (transitionFrame > 0)
+
+        if (transitionPhase == TransitionPhase::EXIT)
         {
-            float alpha = (float)transitionFrame / (float)TRANSITION_FRAMES;
-            fillRectBlend(topFb, TOP_W, TOP_H, 0, 0, TOP_W, TOP_H, C_BG, alpha);
-            fillRectBlend(botFb, BOT_W, BOT_H, 0, 0, BOT_W, BOT_H, C_BG, alpha);
-            --transitionFrame;
+            float t = (float)(transitionFrame + 1) / EXIT_FRAMES;
+            if (t > 1.0f) t = 1.0f;
+            int shiftTop = -(int)(easeInQuad(t) * TOP_W);
+            int shiftBot = -(int)(easeInQuad(t) * BOT_W);
+            clearScreen(topFb, TOP_W, TOP_H, C_BG);
+            clearScreen(botFb, BOT_W, BOT_H, C_BG);
+            blitShiftedX(topFb, animTopBuf, TOP_W, TOP_H, shiftTop);
+            blitShiftedX(botFb, animBotBuf, BOT_W, BOT_H, shiftBot);
+            if (++transitionFrame >= EXIT_FRAMES)
+            {
+                transitionPhase = TransitionPhase::BLANK;
+                transitionFrame = 0;
+            }
+        }
+        else if (transitionPhase == TransitionPhase::BLANK)
+        {
+            clearScreen(topFb, TOP_W, TOP_H, C_BG);
+            clearScreen(botFb, BOT_W, BOT_H, C_BG);
+            if (++transitionFrame >= BLANK_FRAMES)
+            {
+                transitionPhase = TransitionPhase::ENTER;
+                transitionFrame = 0;
+            }
+        }
+        else if (transitionPhase == TransitionPhase::ENTER)
+        {
+            // Render the new page into the scratch buffers, then slide it in
+            // from off-screen with an overshoot-and-settle bounce.
+            drawPage(animTopBuf, animBotBuf);
+            float t = (float)(transitionFrame + 1) / ENTER_FRAMES;
+            if (t > 1.0f) t = 1.0f;
+            float e = easeOutBack(t);
+            int shiftTop = (int)((1.0f - e) * TOP_W);
+            int shiftBot = (int)((1.0f - e) * BOT_W);
+            clearScreen(topFb, TOP_W, TOP_H, C_BG);
+            clearScreen(botFb, BOT_W, BOT_H, C_BG);
+            blitShiftedX(topFb, animTopBuf, TOP_W, TOP_H, shiftTop);
+            blitShiftedX(botFb, animBotBuf, BOT_W, BOT_H, shiftBot);
+            if (++transitionFrame >= ENTER_FRAMES)
+                transitionPhase = TransitionPhase::NONE;
+        }
+        else
+        {
+            drawPage(topFb, botFb);
         }
 
         gfxFlushBuffers();
@@ -390,6 +462,25 @@ main_loop:
 
         circlePosition circle;
         hidCircleRead(&circle);
+
+        // "Are you sure?" quit modal — short-circuits everything else while
+        // it's up; A/tap Yes actually quits, B/tap No/START cancels back.
+        if (confirmingQuit)
+        {
+            static const Button yesBtn = {40,  140, 110, 44, "Yes, quit", C_ERROR,   C_PRIMARY_TXT, {140, 20, 20}};
+            static const Button noBtn  = {170, 140, 110, 44, "No, stay",  C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
+            bool pressedYes = touched && buttonHit(yesBtn, touch.px, touch.py);
+            bool pressedNo  = touched && buttonHit(noBtn,  touch.px, touch.py);
+
+            if (pressedYes || (kDown & KEY_A)) break;
+            if (pressedNo || (kDown & KEY_B) || (kDown & KEY_START)) confirmingQuit = false;
+
+            uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
+            uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
+            drawQuitConfirm(topFb, botFb, yesBtn, noBtn, pressedYes, pressedNo);
+            gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
+            continue;
+        }
 
         // Reap any finished fire-and-forget network jobs (concede / leave /
         // cancel) so their buffers are freed without blocking the loop.
@@ -823,7 +914,7 @@ main_loop:
         pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
         pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
 
-        if (kDown & KEY_START) break;
+        if (kDown & KEY_START) confirmingQuit = true;
 
         if (gameActive)
         {
@@ -938,7 +1029,7 @@ main_loop:
         if (touched)
         {
             if (buttonHit(BTN_QUIT, touch.px, touch.py))
-                break;
+                confirmingQuit = true;
 
             if (state == AppState::LOGGED_IN && lobbyPage == LobbyPage::HOME &&
                 buttonHit(BTN_SIGNOUT, touch.px, touch.py))

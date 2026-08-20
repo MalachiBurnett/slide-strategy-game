@@ -50,6 +50,17 @@ void fillRectBlend(uint8_t *fb, int w, int h, int x0, int y0, int rw, int rh, Co
             drawPixelBlend(fb, w, h, x0 + dx, y0 + dy, c, alpha);
 }
 
+void blitShiftedX(uint8_t *dst, const uint8_t *src, int w, int h, int shiftX)
+{
+    const size_t colBytes = (size_t)h * 3;
+    for (int x = 0; x < w; ++x)
+    {
+        int srcX = x - shiftX;
+        if (srcX < 0 || srcX >= w) continue;
+        memcpy(dst + (size_t)x * colBytes, src + (size_t)srcX * colBytes, colBytes);
+    }
+}
+
 void drawRoundRect(uint8_t *fb, int w, int h,
                    int x0, int y0, int rw, int rh, int r, int thick, Color c)
 {

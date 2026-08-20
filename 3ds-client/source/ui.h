@@ -104,4 +104,9 @@ void drawBottomScreen(uint8_t *fb, AppState state,
 void drawGameTopScreen(uint8_t *fb, const GameUiState &game);
 void drawGameBottomScreen(uint8_t *fb, const GameUiState &game);
 
+// Full-screen "are you sure?" modal shown before actually quitting the app.
+void drawQuitConfirm(uint8_t *topFb, uint8_t *botFb,
+                     const Button &yesBtn, const Button &noBtn,
+                     bool pressedYes, bool pressedNo);
+
 #endif // UI_H

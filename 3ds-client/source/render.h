@@ -45,9 +45,15 @@ void drawPixel      (uint8_t *fb, int w, int h, int x, int y, Color c);
 void fillRect       (uint8_t *fb, int w, int h, int x0, int y0, int rw, int rh, Color c);
 void clearScreen    (uint8_t *fb, int w, int h, Color c);
 // Blends `c` into the existing pixel (alpha 0 = unchanged, 1 = fully replaced).
-// Used for the short fade transition when the visible screen changes.
 void drawPixelBlend (uint8_t *fb, int w, int h, int x, int y, Color c, float alpha);
 void fillRectBlend  (uint8_t *fb, int w, int h, int x0, int y0, int rw, int rh, Color c, float alpha);
+
+// Copies `src` into `dst` (both w×h, same layout as a framebuffer) shifted
+// horizontally by `shiftX` pixels — positive moves content right. Columns
+// that land outside [0, w) are left untouched in `dst`, so clear `dst` to
+// the background colour first if the uncovered area should show it. Used
+// for the slide-in/slide-out screen transition.
+void blitShiftedX   (uint8_t *dst, const uint8_t *src, int w, int h, int shiftX);
 void drawRoundRect  (uint8_t *fb, int w, int h,
                      int x0, int y0, int rw, int rh, int r, int thick, Color c);
 void fillRoundRect  (uint8_t *fb, int w, int h,

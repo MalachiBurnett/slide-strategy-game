@@ -571,3 +571,24 @@ void drawGameBottomScreen(uint8_t *fb, const GameUiState &game)
     fillRoundRect(fb, BOT_W, BOT_H, BOARD_X - 6, BOARD_Y - 6, BOARD_PX + 12, BOARD_PX + 12, 10, C_BOARD_BORDER);
     drawGameBoard(fb, BOT_W, BOT_H, game, BOARD_X, BOARD_Y, BOARD_TILE);
 }
+
+void drawQuitConfirm(uint8_t *topFb, uint8_t *botFb,
+                     const Button &yesBtn, const Button &noBtn,
+                     bool pressedYes, bool pressedNo)
+{
+    clearScreen(topFb, TOP_W, TOP_H, C_BG);
+    fillRoundRectAccented(topFb, TOP_W, TOP_H, 40, 66, TOP_W - 80, 108, 16,
+                          C_BG_DARK, darken(C_BG_DARK, 0.3f), 6);
+    drawRoundRect(topFb, TOP_W, TOP_H, 40, 66, TOP_W - 80, 108, 16, 3, C_ERROR);
+    const char *title = "QUIT SLIDE?";
+    int titleW = (int)strlen(title) * 16;
+    drawTextBold(topFb, TOP_W, TOP_H, (TOP_W - titleW) / 2, 92, title, 2, C_PRIMARY);
+    drawTextWrapped(topFb, TOP_W, TOP_H, 64, 130, TOP_W - 128,
+                    "Any in-progress match will be left unresolved.", 1, C_TEXT);
+
+    clearScreen(botFb, BOT_W, BOT_H, C_BG);
+    drawTextBold(botFb, BOT_W, BOT_H, 8, 54, "Are you sure?", 2, C_PRIMARY);
+    drawText(botFb, BOT_W, BOT_H, 8, 84, "A / tap Yes to quit — B to cancel", 1, C_ACCENT);
+    drawButton(botFb, yesBtn, pressedYes, 1, false);
+    drawButton(botFb, noBtn,  pressedNo,  1, false);
+}
