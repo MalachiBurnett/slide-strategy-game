@@ -870,7 +870,7 @@ main_loop:
             }
             else if (!stale && j->httpCode != 409)
             {
-                snprintf(statusMsg, sizeof(statusMsg), "Polling failed (%ld): %s", j->httpCode,
+                snprintf(statusMsg, sizeof(statusMsg), "Polling failed (%ld): %.150s", j->httpCode,
                          j->curlError[0] ? j->curlError : "server unavailable");
             }
             netJobDestroy(j);
@@ -896,7 +896,7 @@ main_loop:
                 {
                     char errMsg[128] = {};
                     if (!jsonExtract(j->response.data, "error", errMsg, sizeof(errMsg)))
-                        snprintf(errMsg, sizeof(errMsg), "Queue failed (%ld): %s", j->httpCode,
+                        snprintf(errMsg, sizeof(errMsg), "Queue failed (%ld): %.90s", j->httpCode,
                                  j->curlError[0] ? j->curlError : "server unavailable");
                     queueing = false;
                     lobbyPage = LobbyPage::PUBLIC_SETTINGS;
@@ -938,7 +938,7 @@ main_loop:
                 {
                     char errMsg[128] = {};
                     if (!jsonExtract(j->response.data, "error", errMsg, sizeof(errMsg)))
-                        snprintf(errMsg, sizeof(errMsg), "Create failed (%ld): %s", j->httpCode,
+                        snprintf(errMsg, sizeof(errMsg), "Create failed (%ld): %.90s", j->httpCode,
                                  j->curlError[0] ? j->curlError : "server unavailable");
                     queueing = false;
                     lobbyPage = LobbyPage::PRIVATE_CREATE;
@@ -993,7 +993,7 @@ main_loop:
                 {
                     char errMsg[128] = {};
                     if (!jsonExtract(j->response.data, "error", errMsg, sizeof(errMsg)))
-                        snprintf(errMsg, sizeof(errMsg), "Join failed (%ld): %s", j->httpCode,
+                        snprintf(errMsg, sizeof(errMsg), "Join failed (%ld): %.90s", j->httpCode,
                                  j->curlError[0] ? j->curlError : "server unavailable");
                     snprintf(statusMsg, sizeof(statusMsg), "%s", errMsg);
                 }
