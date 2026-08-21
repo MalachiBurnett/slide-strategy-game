@@ -18,11 +18,15 @@
  *
  * Modules:
  *   render      — pixel / text / QR drawing (render.h / render.cpp)
+ *   uikit       — UI objects, scenes, and the slide transition between pages
+ *                 (uikit.h / uikit.cpp)
+ *   screens     — every page expressed as a list of those objects
+ *                 (screens.h / screens.cpp)
  *   font8x8     — 8×8 bitmap font data     (font8x8.h)
  *   net         — worker thread + HTTP GET/POST via curl, plus the blocking
  *                 NetCall helper and buildNetError (net.h / net.cpp)
  *   auth_store  — SD card auth code         (auth_store.h / auth_store.cpp)
- *   ui          — Button + screen layouts   (ui.h / ui.cpp)
+ *   ui          — button geometry + shared app state types (ui.h / ui.cpp)
  *   json_util   — tiny flat-JSON field/board extractor (json_util.h / .cpp)
  *   navigation  — D-pad/circle-pad focus traversal + lobby back button
  *                 (navigation.h / navigation.cpp)
@@ -41,6 +45,8 @@
 #include "net.h"
 #include "auth_store.h"
 #include "ui.h"
+#include "uikit.h"
+#include "screens.h"
 #include "json_util.h"
 #include "navigation.h"
 #include "game_logic.h"
@@ -63,157 +69,6 @@ static bool showKeyboard(const char *hint, char *buf, int bufLen,
         swkbdSetPasswordMode(&kbd, SWKBD_PASSWORD_HIDE_DELAY);
     SwkbdButton btn = swkbdInputText(&kbd, buf, bufLen);
     return btn == SWKBD_BUTTON_CONFIRM;
-}
-
-// ---------------------------------------------------------------------------
-// Easing curves for the screen-slide transition (see TransitionPhase below).
-// ---------------------------------------------------------------------------
-static float easeInQuad(float t) { return t * t; }
-
-static float easeOutBack(float t)
-{
-    constexpr float c1 = 1.70158f;
-    constexpr float c3 = c1 + 1.0f;
-    float p = t - 1.0f;
-    return 1.0f + c3 * p * p * p + c1 * p * p;
-}
-
-// ---------------------------------------------------------------------------
-// Screen-transition zones — each screen is carved into rectangles that slide
-// independently (rather than the whole screen moving as one block, or being
-// cut at fixed geometric lines that can slice through a widget). A hard
-// rule: the top screen never slides DOWN and the bottom screen never slides
-// UP, since that would visually suggest sliding onto the other display.
-//
-// Every zone list starts with a full-screen "catch-all" (direction LEFT —
-// the default for anything not explicitly boxed) that later zones draw over
-// on top of, so unlisted content (headings, wrapped text, decoration) still
-// moves as one whole piece instead of tearing at some arbitrary boundary.
-// ---------------------------------------------------------------------------
-enum class SlideDir { LEFT, RIGHT, UP, DOWN };
-
-struct SlideZone { int x, y, w, h; SlideDir dir; };
-
-// Title bar slides up; everything else on the top screen is one catch-all
-// piece sliding left. Used for every top-screen layout (lobby, QR, game) —
-// they all share the same 25px bar, and none has enough discrete button-like
-// objects to be worth splitting further.
-static constexpr SlideZone TOP_ZONES[] = {
-    {0, 0, TOP_W, 25, SlideDir::UP},
-    {0, 25, TOP_W, TOP_H - 25, SlideDir::LEFT},
-};
-static constexpr int TOP_ZONE_COUNT = sizeof(TOP_ZONES) / sizeof(TOP_ZONES[0]);
-
-// In-game bottom screen is just the board — one cohesive block, slides down
-// (never up, per the same screen-crossing rule).
-static constexpr SlideZone BOTTOM_GAME_ZONES[] = {
-    {0, 0, BOT_W, BOT_H, SlideDir::DOWN},
-};
-static constexpr int BOTTOM_GAME_ZONE_COUNT = sizeof(BOTTOM_GAME_ZONES) / sizeof(BOTTOM_GAME_ZONES[0]);
-
-// Turns a button's own rectangle into its own zone, so it slides as a whole
-// object rather than being sliced by some unrelated boundary:
-//   - a button anchored right at the bottom edge (Quit and similar) exits
-//     downward, matching its edge;
-//   - a button that sits entirely in one half slides toward that half;
-//   - a button that would straddle the middle (and so could only be split
-//     in two) instead defaults to sliding left as a whole, per the rule
-//     that nothing should ever visibly tear.
-static SlideZone zoneForButton(const Button &b, int screenW, int screenH)
-{
-    if (b.y + b.h >= screenH - 12)
-        return SlideZone{b.x, b.y, b.w, b.h, SlideDir::DOWN};
-    const int mid = screenW / 2;
-    const bool crossesMid = b.x < mid && (b.x + b.w) > mid;
-    const SlideDir dir = crossesMid ? SlideDir::LEFT
-                                    : ((b.x + b.w / 2 < mid) ? SlideDir::LEFT : SlideDir::RIGHT);
-    return SlideZone{b.x, b.y, b.w, b.h, dir};
-}
-
-// Builds the current lobby bottom screen's zone list: the full-screen
-// catch-all first, then one zone per button actually shown for this
-// state/page — mirroring drawBottomScreen's own branches, since that's the
-// only source of truth for which buttons appear where. Returns the count;
-// `out` must have room for at least 8.
-static int buildBottomZones(AppState state, LobbyPage lobbyPage, SlideZone *out,
-                            const Button &btnSignIn, const Button &btnGuest,
-                            const Button &btnSignOut, const Button &btnQuit)
-{
-    int n = 0;
-    out[n++] = SlideZone{0, 0, BOT_W, BOT_H, SlideDir::LEFT};
-    auto add = [&](const Button &b) { out[n++] = zoneForButton(b, BOT_W, BOT_H); };
-
-    if (state == AppState::QR_LOGIN || state == AppState::ERROR_STATE)
-    {
-        add(btnSignIn); add(btnGuest); add(BTN_OFFLINE); add(btnQuit);
-    }
-    else if (state == AppState::INIT)
-    {
-        add(btnQuit);
-    }
-    else if (state == AppState::LOGGED_IN)
-    {
-        switch (lobbyPage)
-        {
-        case LobbyPage::HOME:
-            add(BTN_PUBLIC_MATCH); add(BTN_PRIVATE_ROOM); add(BTN_LOCAL_PLAY); add(BTN_SPECTATE);
-            add(btnSignOut); add(btnQuit);
-            break;
-        case LobbyPage::PRIVATE_CHOICE:
-            add(BTN_CREATE_ROOM); add(BTN_JOIN_ROOM); add(BTN_BACK); add(btnQuit);
-            break;
-        case LobbyPage::PRIVATE_JOIN:
-            add(BTN_CONTINUE); add(BTN_BACK); add(btnQuit);
-            break;
-        case LobbyPage::LOCAL_SETTINGS:
-            add(BTN_LOCAL_VARIANT); add(BTN_START_LOCAL); add(BTN_BACK);
-            break;
-        case LobbyPage::PRIVATE_WAIT:
-            add(BTN_CANCEL_PRIVATE);
-            break;
-        case LobbyPage::SPECTATE_COMING:
-            add(BTN_BACK); add(btnQuit);
-            break;
-        case LobbyPage::QUEUE:
-            add(BTN_CANCEL_QUEUE);
-            break;
-        default: // PUBLIC_SETTINGS / PRIVATE_CREATE
-            add(BTN_MATCH_SETTING); add(BTN_TIME_SETTING); add(BTN_VARIANT_SETTING);
-            add(BTN_CONTINUE); add(BTN_BACK); add(btnQuit);
-            break;
-        }
-    }
-    return n;
-}
-
-// Blits one zone's content from `src` into `fb`, at animation progress `t`
-// (0..1). `entering`=false eases the zone off towards its direction
-// (accelerating); `entering`=true eases it in from that same direction with
-// an overshoot-and-settle bounce.
-static void drawZoneSlide(uint8_t *fb, const uint8_t *src, int w, int h,
-                          const SlideZone &z, float t, bool entering)
-{
-    const bool horizontal = (z.dir == SlideDir::LEFT || z.dir == SlideDir::RIGHT);
-    const int sign = (z.dir == SlideDir::LEFT || z.dir == SlideDir::UP) ? -1 : 1;
-    // Travel the zone's own size (not the full screen) — blitRegionShifted
-    // clips strictly to the zone's rectangle regardless, but this keeps the
-    // overshoot bounce's magnitude proportional to the zone itself rather
-    // than ballooning for small zones like the title bar.
-    const int dist = horizontal ? z.w : z.h;
-    // easeOutBack overshoots past its target before settling, which would
-    // send `frac` slightly negative here — flipping `shift`'s sign for a few
-    // frames and, since the blit below is clipped to the zone's own
-    // rectangle (see blitRegionShiftedX/Y), baring a strip of whatever was
-    // drawn underneath (the background, or the catch-all zone) right at the
-    // zone's edge. The zone is already fully revealed by the time that
-    // happens, so clamp at zero instead of letting it "un-reveal".
-    float frac = entering ? (1.0f - easeOutBack(t)) : easeInQuad(t);
-    if (frac < 0.0f) frac = 0.0f;
-    const int shift = sign * (int)(frac * dist);
-    if (horizontal)
-        blitRegionShiftedX(fb, src, w, h, z.x, z.y, z.w, z.h, shift);
-    else
-        blitRegionShiftedY(fb, src, w, h, z.x, z.y, z.w, z.h, shift);
 }
 
 // ---------------------------------------------------------------------------
@@ -248,29 +103,8 @@ int main()
     // All HTTP traffic is handled on this worker thread.
     netThreadStart();
 
-    // ---------------------------------------------------------------------------
-    // Button layout
-    // ---------------------------------------------------------------------------
-    static const Button BTN_SIGNIN = {
-        16, 108, BOT_W - 32, 34,
-        "Sign in on this device",
-        C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}
-    };
-    static const Button BTN_GUEST = {
-        16, 148, BOT_W - 32, 34,
-        "Play as guest",
-        C_BG_DARK, C_TEXT, C_ACCENT
-    };
-    static const Button BTN_QUIT = {
-        16, 212, BOT_W - 32, 20,
-        "Quit",
-        C_BG_DARK, C_TEXT, C_ACCENT
-    };
-    static const Button BTN_SIGNOUT = {
-        16, 188, BOT_W - 32, 24,
-        "Sign out",
-        C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}
-    };
+    // Hands screens.cpp's board / preview / token painters to the toolkit.
+    screensInit();
 
     // ---------------------------------------------------------------------------
     // State
@@ -330,28 +164,22 @@ int main()
     u64 roomCreateJobSession = 0;
     u64 roomJoinJobSession   = 0;
 
-    // Screen transition: whenever a screen's own content changes, its zones
-    // slide off (see SlideZone above), the screen holds briefly blank, then
-    // the new content's zones slide back on with an overshoot-and-settle
-    // bounce. Top and bottom run entirely independent state machines, keyed
-    // off what actually affects each screen — e.g. winning a game changes
-    // the top screen's content but not the (already-final) board on the
-    // bottom, so only the top screen should animate.
-    enum class TransitionPhase { NONE, EXIT, BLANK, ENTER };
-    static constexpr int EXIT_FRAMES  = 8;  // ~133ms slide-out
-    static constexpr int BLANK_FRAMES = 5;  // ~83ms blank hold
-    static constexpr int ENTER_FRAMES = 16; // ~266ms slide-in with overshoot
-    static uint8_t animTopBuf[TOP_W * TOP_H * 3];
-    static uint8_t animBotBuf[BOT_W * BOT_H * 3];
-    // Scratch buffer for the catch-all zone's source: a copy of the current
-    // content with every OTHER zone's rectangle blanked out, so the
-    // catch-all doesn't carry a duplicate "ghost" of buttons that are also
-    // sliding independently via their own zone. Sized for the larger
-    // (top) screen and reused for whichever screen is being processed.
-    static uint8_t maskScratchBuf[TOP_W * TOP_H * 3];
-    TransitionPhase topPhase = TransitionPhase::NONE, botPhase = TransitionPhase::NONE;
-    int topKey = -1, botKey = -1;
-    int topFrame = 0, botFrame = 0;
+    // Screen transition. Each screen is rebuilt every frame as a scene of
+    // independent objects (screens.cpp) and handed to its own animator, which
+    // slides the old page off and the new one in whenever that screen's page
+    // key changes — see uikit.h. Top and bottom are entirely independent, so
+    // e.g. winning a game (which changes the top screen but leaves the final
+    // board on the bottom alone) animates only the top.
+    //
+    // These are static rather than automatic because a UiScene is a few KB
+    // and the 3DS main thread's stack is not generous.
+    static UiScene topScene, botScene;
+    static UiAnim  topAnim,  botAnim;
+    uiAnimInit(topAnim);
+    uiAnimInit(botAnim);
+    // True while the bottom screen's controls are still in flight, which is
+    // the cue to ignore presses aimed at buttons that are not there yet.
+    bool bottomBusy = false;
 
     // Match clock. The server is authoritative (timerSync snaps to its
     // values whenever a response includes them), but between requests we
@@ -364,11 +192,6 @@ int main()
     static uint8_t qrData   [qrcodegen_BUFFER_LEN_FOR_VERSION(5)];
     bool qrReady = false;
 
-    bool pressedSignIn = false;
-    bool pressedGuest = false;
-    bool pressedOffline = false;
-    bool pressedSignOut = false;
-    bool pressedQuit   = false;
     bool returnToErrorAfterKeyboardCancel = false;
     bool confirmingQuit = false;
 
@@ -406,6 +229,34 @@ int main()
         timerSync(w < 0 ? 0 : w, b < 0 ? 0 : b);
     };
 
+    // Assembles the read-only view of application state the scene builders
+    // work from. Everything they draw is a pure function of this.
+    auto buildContext = [&](int touchX, int touchY, bool touchActive) -> UiContext
+    {
+        UiContext ctx;
+        ctx.state          = state;
+        ctx.page           = lobbyPage;
+        ctx.gameActive     = gameActive;
+        ctx.confirmingQuit = confirmingQuit;
+        ctx.username       = username;
+        ctx.elo            = elo;
+        ctx.isRated        = isRated;
+        ctx.timeControl    = timeControl;
+        ctx.variant        = variant;
+        ctx.focusIndex     = focusIndex;
+        ctx.focusVisible   = focusVisible;
+        ctx.qrData         = qrData;
+        ctx.qrReady        = qrReady;
+        ctx.statusMsg      = statusMsg;
+        ctx.privateCode    = privateCode;
+        ctx.joinCode       = joinCode;
+        ctx.game           = &game;
+        ctx.touchX         = touchX;
+        ctx.touchY         = touchY;
+        ctx.touchActive    = touchActive;
+        return ctx;
+    };
+
     // Render one frame from the current state.
     auto renderFrame = [&](int touchX, int touchY, bool touchActive)
     {
@@ -421,107 +272,15 @@ int main()
             game.timerB = b < 0 ? 0 : b;
         }
 
-        auto drawTop = [&](uint8_t *fb)
-        {
-            if (gameActive)
-                drawGameTopScreen(fb, game);
-            else
-                drawTopScreen(fb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, qrData, qrReady, statusMsg, privateCode);
-        };
-        auto drawBottom = [&](uint8_t *fb)
-        {
-            if (gameActive)
-                drawGameBottomScreen(fb, game);
-            else
-                drawBottomScreen(fb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible,
-                                 pressedSignIn, pressedGuest, pressedSignOut, pressedOffline, pressedQuit,
-                                 BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, touchX, touchY, touchActive, privateCode);
-        };
+        const UiContext ctx = buildContext(touchX, touchY, touchActive);
+        buildTopScene   (topScene, ctx);
+        buildBottomScene(botScene, ctx);
 
-        // Drives one screen's independent transition state machine: on a key
-        // change, snapshot what's currently shown (stable for a couple of
-        // frames already, so it's a clean capture of the outgoing content)
-        // and slide its zones off; hold blank; render the new content into
-        // the scratch buffer and slide its zones on with an overshoot bounce.
-        auto runTransition = [&](uint8_t *fb, uint8_t *animBuf, int w, int h,
-                                 const SlideZone *zones, int zoneCount, int newKey,
-                                 TransitionPhase &phase, int &key, int &frame,
-                                 auto &&drawNew)
-        {
-            if (newKey != key)
-            {
-                memcpy(animBuf, fb, (size_t)w * h * 3);
-                key   = newKey;
-                phase = TransitionPhase::EXIT;
-                frame = 0;
-            }
-
-            // If one zone covers the full screen (the catch-all default-LEFT
-            // piece), its source needs every other zone's rectangle blanked
-            // out first — otherwise it carries a duplicate "ghost" of
-            // buttons that are also sliding independently via their own zone.
-            auto drawZones = [&](const uint8_t *src, float t, bool entering)
-            {
-                int catchAllIdx = -1;
-                if (zoneCount > 1)
-                    for (int i = 0; i < zoneCount; ++i)
-                        if (zones[i].x == 0 && zones[i].y == 0 && zones[i].w == w && zones[i].h == h)
-                        { catchAllIdx = i; break; }
-                if (catchAllIdx >= 0)
-                {
-                    memcpy(maskScratchBuf, src, (size_t)w * h * 3);
-                    for (int i = 0; i < zoneCount; ++i)
-                        if (i != catchAllIdx)
-                            fillRect(maskScratchBuf, w, h, zones[i].x, zones[i].y, zones[i].w, zones[i].h, C_BG);
-                }
-                for (int i = 0; i < zoneCount; ++i)
-                    drawZoneSlide(fb, (i == catchAllIdx) ? maskScratchBuf : src, w, h, zones[i], t, entering);
-            };
-
-            if (phase == TransitionPhase::EXIT)
-            {
-                float t = (float)(frame + 1) / EXIT_FRAMES;
-                if (t > 1.0f) t = 1.0f;
-                clearScreen(fb, w, h, C_BG);
-                drawZones(animBuf, t, false);
-                if (++frame >= EXIT_FRAMES) { phase = TransitionPhase::BLANK; frame = 0; }
-            }
-            else if (phase == TransitionPhase::BLANK)
-            {
-                clearScreen(fb, w, h, C_BG);
-                if (++frame >= BLANK_FRAMES) { phase = TransitionPhase::ENTER; frame = 0; }
-            }
-            else if (phase == TransitionPhase::ENTER)
-            {
-                drawNew(animBuf);
-                float t = (float)(frame + 1) / ENTER_FRAMES;
-                if (t > 1.0f) t = 1.0f;
-                clearScreen(fb, w, h, C_BG);
-                drawZones(animBuf, t, true);
-                if (++frame >= ENTER_FRAMES) phase = TransitionPhase::NONE;
-            }
-            else
-            {
-                drawNew(fb);
-            }
-        };
-
-        SlideZone lobbyBotZones[8];
-        const SlideZone *botZones = gameActive ? BOTTOM_GAME_ZONES : lobbyBotZones;
-        const int botZoneCount    = gameActive ? BOTTOM_GAME_ZONE_COUNT
-                                               : buildBottomZones(state, lobbyPage, lobbyBotZones,
-                                                                  BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT);
-
-        // Keyed independently: winning a game changes the top screen (the
-        // win/lose panel) but not the bottom (same board either way), so
-        // only the top screen's key — which includes gameOver — changes.
-        const int newTopKey = gameActive ? (1000 + (game.gameOver ? 1 : 0)) : ((int)state * 100 + (int)lobbyPage);
-        const int newBotKey = gameActive ? 2000                            : ((int)state * 100 + (int)lobbyPage);
-
-        runTransition(topFb, animTopBuf, TOP_W, TOP_H, TOP_ZONES, TOP_ZONE_COUNT,
-                     newTopKey, topPhase, topKey, topFrame, drawTop);
-        runTransition(botFb, animBotBuf, BOT_W, BOT_H, botZones, botZoneCount,
-                     newBotKey, botPhase, botKey, botFrame, drawBottom);
+        uiAnimRun(topAnim, topScene, topFb, C_BG);
+        uiAnimRun(botAnim, botScene, botFb, C_BG);
+        // Read after the run, so next frame's input phase knows whether the
+        // bottom screen's controls have arrived where the player can see them.
+        bottomBusy = uiAnimInputBlocked(botAnim);
 
         gfxFlushBuffers();
         gfxSwapBuffers();
@@ -532,25 +291,19 @@ int main()
     // Show "connecting" splash while we make the initial network calls
     // ---------------------------------------------------------------------------
     {
-        uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
-        uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
-
         // If SOC failed, say so immediately rather than making curl fail silently
         if (R_FAILED(socResult))
         {
             snprintf(statusMsg, sizeof(statusMsg),
                      "SOC init failed (0x%08lX) - check WiFi", socResult);
             state = AppState::ERROR_STATE;
-            drawTopScreen   (topFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, statusMsg, privateCode);
-            drawBottomScreen(botFb, state, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, 0, 0, false, privateCode);
-            gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
+            renderFrame(0, 0, false);
             // Skip network steps; fall straight through to the main loop
             goto main_loop;
         }
 
-        drawTopScreen   (topFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, nullptr, false, "Checking saved login...", privateCode);
-        drawBottomScreen(botFb, AppState::INIT, lobbyPage, username, elo, isRated, timeControl, variant, focusIndex, focusVisible, false, false, false, false, false, BTN_SIGNIN, BTN_GUEST, BTN_SIGNOUT, BTN_QUIT, 0, 0, false, privateCode);
-        gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
+        snprintf(statusMsg, sizeof(statusMsg), "Checking saved login...");
+        renderFrame(0, 0, false);
     }
 
     // ---------------------------------------------------------------------------
@@ -629,22 +382,28 @@ main_loop:
         circlePosition circle;
         hidCircleRead(&circle);
 
+        // While the bottom screen's objects are still flying on or off, no
+        // control is where the player thinks it is — so swallow presses
+        // rather than acting on a button that is halfway across the screen.
+        if (bottomBusy)
+        {
+            touched   = false;
+            touchHeld = false;
+            kDown    &= ~(KEY_A | KEY_B | KEY_START | KEY_TOUCH);
+        }
+
         // "Are you sure?" quit modal — short-circuits everything else while
-        // it's up; A/tap Yes actually quits, B/tap No/START cancels back.
+        // it's up; A/tap Quit actually quits, B/tap Stay/START cancels back.
+        // It is a page like any other, so renderFrame slides it in and out.
         if (confirmingQuit)
         {
-            static const Button yesBtn = {40,  140, 110, 44, "Yes, quit", C_ERROR,   C_PRIMARY_TXT, {140, 20, 20}};
-            static const Button noBtn  = {170, 140, 110, 44, "No, stay",  C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-            bool pressedYes = touched && buttonHit(yesBtn, touch.px, touch.py);
-            bool pressedNo  = touched && buttonHit(noBtn,  touch.px, touch.py);
+            const bool pressedYes = touched && buttonHit(BTN_QUIT_YES, touch.px, touch.py);
+            const bool pressedNo  = touched && buttonHit(BTN_QUIT_NO,  touch.px, touch.py);
 
             if (pressedYes || (kDown & KEY_A)) break;
             if (pressedNo || (kDown & KEY_B) || (kDown & KEY_START)) confirmingQuit = false;
 
-            uint8_t *topFb = gfxGetFramebuffer(GFX_TOP,    GFX_LEFT, nullptr, nullptr);
-            uint8_t *botFb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, nullptr, nullptr);
-            drawQuitConfirm(topFb, botFb, yesBtn, noBtn, pressedYes, pressedNo);
-            gfxFlushBuffers(); gfxSwapBuffers(); gspWaitForVBlank();
+            renderFrame(touch.px, touch.py, touchHeld);
             continue;
         }
 
@@ -1072,12 +831,6 @@ main_loop:
             else
                 focusPressActive = false;
         }
-
-        pressedSignIn = touchHeld && buttonHit(BTN_SIGNIN, touch.px, touch.py);
-        pressedGuest = touchHeld && buttonHit(BTN_GUEST, touch.px, touch.py);
-        pressedOffline = touchHeld && buttonHit(BTN_OFFLINE, touch.px, touch.py);
-        pressedSignOut = touchHeld && buttonHit(BTN_SIGNOUT, touch.px, touch.py);
-        pressedQuit   = touchHeld && buttonHit(BTN_QUIT,   touch.px, touch.py);
 
         if (kDown & KEY_START) confirmingQuit = true;
 

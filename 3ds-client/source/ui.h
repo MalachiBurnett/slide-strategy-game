@@ -1,12 +1,19 @@
 /*
- * ui.h — Button layout, top-screen and bottom-screen drawing.
+ * ui.h — application state enums, the shared button layout table, and the
+ * match-view state that the scene builders in screens.cpp read from.
+ *
+ * Drawing lives in screens.cpp (which turns all of this into UiScene objects)
+ * and uikit.cpp (which draws and animates them). What stays here is the
+ * geometry, because it is the single source of truth for both the rendered
+ * position of a control and the tap zone main.cpp hit-tests against — those
+ * two can never be allowed to drift apart.
  */
 #ifndef UI_H
 #define UI_H
 
 #include "render.h"
 
-// Centered game-board layout (bottom screen, 320x240; board is 228x228).
+// Centred game-board layout (bottom screen, 320x240; board is 228x228).
 constexpr int BOARD_X    = 46;
 constexpr int BOARD_Y    = 6;
 constexpr int BOARD_TILE = 38;
@@ -50,31 +57,37 @@ struct Button
 };
 
 // ---------------------------------------------------------------------------
-// Shared lobby button layouts — the single source of truth for both drawing
-// (ui.cpp) and touch hit-testing (main.cpp), so the tap zone can never drift
-// out of sync with what's actually on screen.
+// Shared button layouts — the single source of truth for both scene building
+// (screens.cpp) and touch hit-testing (main.cpp).
 // ---------------------------------------------------------------------------
-constexpr Button BTN_OFFLINE        = {16, 188, BOT_W - 32, 20, "Offline local play", C_BG_DARK, C_TEXT, C_ACCENT};
-constexpr Button BTN_PUBLIC_MATCH   = {8, 76, 148, 42, "Public match", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-constexpr Button BTN_PRIVATE_ROOM   = {164, 76, 148, 42, "Private room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-constexpr Button BTN_CREATE_ROOM    = {8, 88, 148, 42, "Create room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-constexpr Button BTN_JOIN_ROOM      = {164, 88, 148, 42, "Join room", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-constexpr Button BTN_LOCAL_PLAY     = {8, 124, 148, 42, "Local play", C_ACCENT, C_BG_DARK, C_PRIMARY};
-constexpr Button BTN_SPECTATE       = {164, 124, 148, 42, "Spectate", C_BG_DARK, C_TEXT, C_ACCENT};
-constexpr Button BTN_BACK           = {8, 172, 148, 26, "Back", C_BG_DARK, C_TEXT, C_ACCENT};
-constexpr Button BTN_CONTINUE       = {164, 172, 148, 26, "Continue", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-constexpr Button BTN_START_LOCAL    = {164, 172, 148, 26, "Start local", C_PRIMARY, C_PRIMARY_TXT, {105, 50, 12}};
-constexpr Button BTN_CANCEL_QUEUE   = {64, 160, 192, 30, "Cancel queue", C_BG_DARK, C_TEXT, C_ACCENT};
-constexpr Button BTN_CANCEL_PRIVATE = {64, 160, 192, 30, "Cancel room", C_BG_DARK, C_TEXT, C_ACCENT};
+constexpr Button BTN_SIGNIN         = {16, 108, BOT_W - 32, 34, "Sign in on this device", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};
+constexpr Button BTN_GUEST          = {16, 148, BOT_W - 32, 34, "Play as guest", C_BG_LIGHT, C_PRIMARY, C_ACCENT};
+constexpr Button BTN_OFFLINE        = {16, 188, BOT_W - 32, 20, "Offline local play", C_BG_LIGHT, C_TEXT, C_ACCENT};
+constexpr Button BTN_QUIT           = {16, 212, BOT_W - 32, 20, "Quit", C_BG_DARK, C_TEXT, C_ACCENT_DK};
+constexpr Button BTN_SIGNOUT        = {16, 188, BOT_W - 32, 24, "Sign out", C_BG_LIGHT, C_ERROR, C_ACCENT};
+constexpr Button BTN_PUBLIC_MATCH   = {8, 76, 148, 42, "Public match", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};
+constexpr Button BTN_PRIVATE_ROOM   = {164, 76, 148, 42, "Private room", C_BG_LIGHT, C_PRIMARY, C_ACCENT};
+constexpr Button BTN_CREATE_ROOM    = {8, 88, 148, 42, "Create room", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};
+constexpr Button BTN_JOIN_ROOM      = {164, 88, 148, 42, "Join room", C_BG_LIGHT, C_PRIMARY, C_ACCENT};
+constexpr Button BTN_LOCAL_PLAY     = {8, 124, 148, 42, "Local play", C_ACCENT, C_TEXT, C_ACCENT_DK};
+constexpr Button BTN_SPECTATE       = {164, 124, 148, 42, "Spectate", C_PURPLE, C_PRIMARY_TXT, C_PURPLE_DK};
+constexpr Button BTN_BACK           = {8, 172, 148, 26, "Back", C_BG_LIGHT, C_TEXT, C_ACCENT};
+constexpr Button BTN_CONTINUE       = {164, 172, 148, 26, "Continue", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};
+constexpr Button BTN_START_LOCAL    = {164, 172, 148, 26, "Start local", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};
+constexpr Button BTN_CANCEL_QUEUE   = {64, 160, 192, 30, "Cancel queue", C_BG_LIGHT, C_ERROR, C_ACCENT};
+constexpr Button BTN_CANCEL_PRIVATE = {64, 160, 192, 30, "Close room", C_BG_LIGHT, C_ERROR, C_ACCENT};
 
-// Settings-row "pseudo buttons" on PUBLIC_SETTINGS / PRIVATE_CREATE / LOCAL —
-// drawn as a custom row widget rather than through drawButton, but the
-// geometry is still shared so ui.cpp's rendering and main.cpp's hit-testing
-// always agree on where the row actually is.
-constexpr Button BTN_MATCH_SETTING   = {8, 28, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-constexpr Button BTN_TIME_SETTING    = {8, 52, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-constexpr Button BTN_VARIANT_SETTING = {8, 76, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
-constexpr Button BTN_LOCAL_VARIANT   = {8, 44, BOT_W - 16, 20, "", C_BG_DARK, C_TEXT, C_ACCENT};
+// Full-screen "are you sure?" quit modal.
+constexpr Button BTN_QUIT_YES = {40, 140, 110, 44, "Quit", C_ERROR, C_PRIMARY_TXT, {140, 20, 20}};
+constexpr Button BTN_QUIT_NO  = {170, 140, 110, 44, "Stay", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};
+
+// Settings rows on PUBLIC_SETTINGS / PRIVATE_CREATE / LOCAL_SETTINGS — drawn
+// as label+value rows rather than through the button path, but the geometry
+// is shared all the same so rendering and hit-testing always agree.
+constexpr Button BTN_MATCH_SETTING   = {8, 28, BOT_W - 16, 20, "", C_BG_LIGHT, C_TEXT, C_ACCENT};
+constexpr Button BTN_TIME_SETTING    = {8, 52, BOT_W - 16, 20, "", C_BG_LIGHT, C_TEXT, C_ACCENT};
+constexpr Button BTN_VARIANT_SETTING = {8, 76, BOT_W - 16, 20, "", C_BG_LIGHT, C_TEXT, C_ACCENT};
+constexpr Button BTN_LOCAL_VARIANT   = {8, 44, BOT_W - 16, 20, "", C_BG_LIGHT, C_TEXT, C_ACCENT};
 
 struct GameUiState
 {
@@ -101,39 +114,6 @@ struct GameUiState
     int timerB;
 };
 
-bool buttonHit (const Button &btn, int tx, int ty);
-void drawButton(uint8_t *fb, const Button &btn, bool pressed, int textScale = 1,
-                bool focused = false);
-
-// ---------------------------------------------------------------------------
-// Screen drawing
-// ---------------------------------------------------------------------------
-void drawTopScreen   (uint8_t *fb, AppState state,
-                      LobbyPage lobbyPage,
-                      const char *username, const char *elo,
-                      bool isRated, int timeControl, int variant,
-                      int focusIndex,
-                      const uint8_t *qrData, bool qrReady,
-                      const char *statusMsg, const char *privateCode);
-
-void drawBottomScreen(uint8_t *fb, AppState state,
-                      LobbyPage lobbyPage,
-                      const char *username, const char *elo,
-                      bool isRated, int timeControl, int variant,
-                      int focusIndex, bool focusVisible,
-                      bool pressedSignIn, bool pressedGuest, bool pressedSignOut,
-                      bool pressedOffline, bool pressedQuit, const Button &btnSignIn,
-                      const Button &btnGuest, const Button &btnSignOut,
-                      const Button &btnQuit,
-                      int touchX, int touchY, bool touchActive,
-                      const char *privateCode);
-
-void drawGameTopScreen(uint8_t *fb, const GameUiState &game);
-void drawGameBottomScreen(uint8_t *fb, const GameUiState &game);
-
-// Full-screen "are you sure?" modal shown before actually quitting the app.
-void drawQuitConfirm(uint8_t *topFb, uint8_t *botFb,
-                     const Button &yesBtn, const Button &noBtn,
-                     bool pressedYes, bool pressedNo);
+bool buttonHit(const Button &btn, int tx, int ty);
 
 #endif // UI_H
