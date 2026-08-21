@@ -31,7 +31,8 @@ async function startServer() {
 
   app.use(express.json());
   app.use(cookieParser());
-  app.use(session({
+
+  const sessionMiddleware = session({
     store: new SQLiteStore({
       db: 'game.db',
       table: 'sessions',
@@ -39,9 +40,27 @@ async function startServer() {
     }) as any,
     secret: "slide-secret-key",
     resave: false,
-    saveUninitialized: true,
+    // Was true, which wrote a sessions row for every request that arrived
+    // without a cookie. The 3DS client has no cookie jar, so it never sent
+    // connect.sid back and every one of its requests - including a status
+    // poll twice a second - created a brand new session and INSERTed it into
+    // game.db, on the critical path of the response and contending with the
+    // same file the move handler updates. Browsers return the cookie, so
+    // with resave:false they were writing nothing; this was purely a 3DS
+    // cost. Nothing here needs the empty session persisted: every route that
+    // uses one assigns req.session.userId first, which marks it modified and
+    // saves it regardless.
+    saveUninitialized: false,
     cookie: { secure: false, sameSite: 'lax' }
-  }));
+  });
+
+  // The 3DS endpoints authenticate with an authCode in the body and have no
+  // use for a session at all, so skip loading one for them entirely rather
+  // than doing a store lookup per poll.
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api/3ds/")) return next();
+    return sessionMiddleware(req, res, next);
+  });
 
   // API Routes
   app.use("/api", authRouter);
