@@ -305,11 +305,13 @@ static void drawButtonElem(uint8_t *fb, int w, int h, const UiElem &e, int x, in
     const int accentPx = pressed ? 0 : (e.h >= 30 ? 4 : 3);
     const int faceH    = e.h - accentPx;
 
+    // Focus reads mostly off the colour change, so its ring only needs to be
+    // a touch heavier than the resting outline.
     fillRoundRectAccented(fb, w, h, x, y, e.w, e.h, r, bg, darken(bg, 0.35f), accentPx);
     if (focused)
-        drawRoundRect(fb, w, h, x, y, e.w, e.h, r, 3, C_SUCCESS);
+        drawRoundRect(fb, w, h, x, y, e.w, e.h, r, 4, C_SUCCESS);
     else if (!pressed)
-        drawRoundRect(fb, w, h, x, y, e.w, e.h, r, 1, e.edge);
+        drawRoundRect(fb, w, h, x, y, e.w, e.h, r, 2, e.edge);
 
     const Glyph g       = (Glyph)e.glyph;
     const int   gScale  = e.h >= 30 ? 2 : 1;
