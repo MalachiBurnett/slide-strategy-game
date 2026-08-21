@@ -1,11 +1,9 @@
 /*
  * net.h — HTTP helpers for the 3DS Slide client (HTTPS polling only).
  *
- * Key fixes vs the original monolithic main.cpp:
- *   • BASE_URL uses HTTPS (was HTTP — caused redirect/connection failure).
- *   • CURLOPT_FOLLOWLOCATION is enabled so 301/302 redirects are followed.
- *   • Both httpGet and httpPost return the CURLcode and the human-readable
- *     error buffer so callers can surface a meaningful error message.
+ * BASE_URL is HTTPS, CURLOPT_FOLLOWLOCATION is on so redirects are followed,
+ * and every request reports both its CURLcode and the human-readable curl
+ * error buffer so callers can surface a meaningful message.
  *
  * All HTTP work runs on two dedicated worker threads (see netThreadStart) so
  * the render/input loop never stalls on network I/O. Callers create a NetJob,
@@ -19,6 +17,13 @@
  * round-trip. netJobSubmit now goes on a dedicated "priority" queue/thread;
  * netJobSubmitPoll is for the background pollers, which can tolerate the
  * extra latency.
+ *
+ * Each worker owns one long-lived CURL handle for the life of the process
+ * (see netWorker), which is what keeps the connection, the DNS cache and the
+ * TLS session cache alive between requests. That matters enormously here: a
+ * fresh mbedTLS handshake on a 268 MHz ARM11 dwarfs the actual request, and
+ * the client makes no requests at all during the player's own turn, so a
+ * move send is always the coldest request in the game.
  */
 #ifndef NET_H
 #define NET_H
@@ -42,28 +47,7 @@ struct CurlBuf
 CurlBuf  allocBuf();
 void     freeBuf(CurlBuf &b);
 
-// ---------------------------------------------------------------------------
-// HTTP helpers
-//
-// Both functions return the HTTP status code (200, 400, …) on success.
-// On a transport-level failure (DNS, TCP, TLS, timeout…) they return 0.
-//
-// outCurlCode  — set to the CURLcode so callers know exactly what failed.
-// outCurlError — human-readable error string (CURL_ERROR_SIZE bytes);
-//                valid on both success and failure.
-// ---------------------------------------------------------------------------
 static constexpr const char *BASE_URL = "https://slide.wiizardsoftware.uk";
-
-long httpGet (const char *path,
-              CurlBuf    &outBody,
-              CURLcode   &outCurlCode,
-              char        outCurlError[CURL_ERROR_SIZE]);
-
-long httpPost(const char *path,
-              const char *jsonBody,
-              CurlBuf    &outBody,
-              CURLcode   &outCurlCode,
-              char        outCurlError[CURL_ERROR_SIZE]);
 
 // ---------------------------------------------------------------------------
 // Networking worker thread

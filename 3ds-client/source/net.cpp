@@ -47,12 +47,17 @@ void freeBuf(CurlBuf &b)
 
 // ---------------------------------------------------------------------------
 // Shared curl setup
+//
+// The handle itself is owned by the calling worker thread and lives for the
+// whole session; this only (re)configures it for one request.
+// curl_easy_reset clears every option but deliberately keeps the handle's
+// live connections, DNS cache and TLS session-ID cache, which is the entire
+// point of holding onto it — see the note in net.h.
 // ---------------------------------------------------------------------------
-static CURL *makeCurl(const char *url, CurlBuf &outBody,
-                      char outCurlError[CURL_ERROR_SIZE])
+static void configureCurl(CURL *c, const char *url, CurlBuf &outBody,
+                          char outCurlError[CURL_ERROR_SIZE])
 {
-    CURL *c = curl_easy_init();
-    if (!c) return nullptr;
+    curl_easy_reset(c);
 
     outCurlError[0] = 0;
 
@@ -66,11 +71,22 @@ static CURL *makeCurl(const char *url, CurlBuf &outBody,
     curl_easy_setopt(c, CURLOPT_NOSIGNAL,            1L);   // required for use from a worker thread
     curl_easy_setopt(c, CURLOPT_SSL_VERIFYPEER,      0L);   // 3DS lacks a CA bundle
     curl_easy_setopt(c, CURLOPT_SSL_VERIFYHOST,      0L);
-    curl_easy_setopt(c, CURLOPT_DNS_CACHE_TIMEOUT,   0L);   // don't cache failed DNS
     curl_easy_setopt(c, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); // 3DS is IPv4 only
     curl_easy_setopt(c, CURLOPT_ERRORBUFFER,         outCurlError);
 
-    return c;
+    // Resolve once and remember it. This used to be 0 — meaning "never cache"
+    // rather than the intended "don't cache failures", which curl does not do
+    // in the first place — so every request paid a fresh DNS round trip.
+    curl_easy_setopt(c, CURLOPT_DNS_CACHE_TIMEOUT, 300L);
+    // Explicit rather than load-bearing (both are curl defaults), but these
+    // two are exactly what makes reusing the handle worth anything.
+    curl_easy_setopt(c, CURLOPT_SSL_SESSIONID_CACHE, 1L);
+    curl_easy_setopt(c, CURLOPT_FORBID_REUSE,        0L);
+    // Probe an idle connection so a home router's NAT table does not quietly
+    // drop it while the player is thinking about their move.
+    curl_easy_setopt(c, CURLOPT_TCP_KEEPALIVE,  1L);
+    curl_easy_setopt(c, CURLOPT_TCP_KEEPIDLE,  30L);
+    curl_easy_setopt(c, CURLOPT_TCP_KEEPINTVL, 15L);
 }
 
 static CURLcode performWithDnsRetry(CURL *c, CurlBuf &outBody)
@@ -89,24 +105,17 @@ static CURLcode performWithDnsRetry(CURL *c, CurlBuf &outBody)
     return res;
 }
 
-// ---------------------------------------------------------------------------
-// GET
-// ---------------------------------------------------------------------------
-long httpGet(const char *path,
-             CurlBuf    &outBody,
-             CURLcode   &outCurlCode,
-             char        outCurlError[CURL_ERROR_SIZE])
+// Shared tail: run the request on the worker's handle and read the status
+// back off it. `c` is the caller's own long-lived handle, never cleaned up
+// here — tearing it down is what would throw away the warm connection.
+static long performOn(CURL *c, const char *verb, const char *url,
+                      CurlBuf &outBody, CURLcode &outCurlCode,
+                      char outCurlError[CURL_ERROR_SIZE])
 {
-    char url[256];
-    snprintf(url, sizeof(url), "%s%s", BASE_URL, path);
-
-    CURL *c = makeCurl(url, outBody, outCurlError);
-    if (!c) { outCurlCode = CURLE_FAILED_INIT; return 0; }
-
     CURLcode res = performWithDnsRetry(c, outBody);
     outCurlCode  = res;
 
-    printf("[net] GET %s -> CURLcode %d (%s)\n", url, res, curl_easy_strerror(res));
+    printf("[net] %s %s -> CURLcode %d (%s)\n", verb, url, res, curl_easy_strerror(res));
     if (outCurlError[0]) printf("[net] error detail: %s\n", outCurlError);
 
     long code = 0;
@@ -114,53 +123,61 @@ long httpGet(const char *path,
         curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &code);
 
     printf("[net] HTTP status: %ld\n", code);
-    curl_easy_cleanup(c);
     return code;
+}
+
+// ---------------------------------------------------------------------------
+// GET
+// ---------------------------------------------------------------------------
+static long httpGet(CURL       *c,
+                    const char *path,
+                    CurlBuf    &outBody,
+                    CURLcode   &outCurlCode,
+                    char        outCurlError[CURL_ERROR_SIZE])
+{
+    if (!c) { outCurlCode = CURLE_FAILED_INIT; return 0; }
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s%s", BASE_URL, path);
+
+    configureCurl(c, url, outBody, outCurlError);
+    return performOn(c, "GET", url, outBody, outCurlCode, outCurlError);
 }
 
 // ---------------------------------------------------------------------------
 // POST (JSON body)
 // ---------------------------------------------------------------------------
-long httpPost(const char *path,
-              const char *jsonBody,
-              CurlBuf    &outBody,
-              CURLcode   &outCurlCode,
-              char        outCurlError[CURL_ERROR_SIZE])
+static long httpPost(CURL              *c,
+                     struct curl_slist *jsonHeaders,
+                     const char        *path,
+                     const char        *jsonBody,
+                     CurlBuf           &outBody,
+                     CURLcode          &outCurlCode,
+                     char               outCurlError[CURL_ERROR_SIZE])
 {
+    if (!c) { outCurlCode = CURLE_FAILED_INIT; return 0; }
+
     char url[256];
     snprintf(url, sizeof(url), "%s%s", BASE_URL, path);
 
-    CURL *c = makeCurl(url, outBody, outCurlError);
-    if (!c) { outCurlCode = CURLE_FAILED_INIT; return 0; }
-
-    struct curl_slist *hdrs = nullptr;
-    hdrs = curl_slist_append(hdrs, "Content-Type: application/json");
-
+    configureCurl(c, url, outBody, outCurlError);
+    // configureCurl reset the handle back to GET, so setting the body is what
+    // makes this a POST again.
     curl_easy_setopt(c, CURLOPT_POSTFIELDS, jsonBody);
-    curl_easy_setopt(c, CURLOPT_HTTPHEADER, hdrs);
+    curl_easy_setopt(c, CURLOPT_HTTPHEADER, jsonHeaders);
 
-    CURLcode res = performWithDnsRetry(c, outBody);
-    outCurlCode  = res;
-
-    printf("[net] POST %s -> CURLcode %d (%s)\n", url, res, curl_easy_strerror(res));
-    if (outCurlError[0]) printf("[net] error detail: %s\n", outCurlError);
-
-    long code = 0;
-    if (res == CURLE_OK)
-        curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &code);
-
-    printf("[net] HTTP status: %ld\n", code);
-    curl_slist_free_all(hdrs);
-    curl_easy_cleanup(c);
+    const long code = performOn(c, "POST", url, outBody, outCurlCode, outCurlError);
+    // Drop the borrowed header list before returning: the worker owns it, and
+    // leaving it referenced by an idle handle is asking for a dangling read.
+    curl_easy_setopt(c, CURLOPT_HTTPHEADER, nullptr);
     return code;
 }
 
 // ---------------------------------------------------------------------------
 // Networking worker threads
 //
-// Two independent queue/thread pairs, each owning its own libcurl handles
-// (a request creates and frees its own handle), so the render/input loop
-// never blocks on I/O:
+// Two independent queue/thread pairs, each owning one long-lived libcurl
+// handle, so the render/input loop never blocks on I/O:
 //   g_priorityQueue — moves, queue/room join, login: latency-sensitive
 //                     one-shot actions the player is actively waiting on.
 //   g_pollQueue     — status polling, QR-login polling: recurring
@@ -185,6 +202,15 @@ static NetQueue g_pollQueue;
 static void netWorker(void *arg)
 {
     NetQueue *q = (NetQueue *)arg;
+
+    // Created here rather than in netThreadStart so the handle is only ever
+    // touched by the one thread that owns it. It deliberately outlives every
+    // individual request: that is what carries the open connection, the
+    // resolved address and the TLS session across to the next one.
+    CURL *curl = curl_easy_init();
+    struct curl_slist *jsonHeaders =
+        curl_slist_append(nullptr, "Content-Type: application/json");
+
     while (true)
     {
         LightSemaphore_Acquire(&q->pending, 1);
@@ -205,8 +231,9 @@ static void netWorker(void *arg)
         if (!job) continue;
 
         long code = (job->op == NetOp::POST)
-            ? httpPost(job->path, job->body, job->response, job->curlCode, job->curlError)
-            : httpGet (job->path, job->response, job->curlCode, job->curlError);
+            ? httpPost(curl, jsonHeaders, job->path, job->body,
+                       job->response, job->curlCode, job->curlError)
+            : httpGet (curl, job->path, job->response, job->curlCode, job->curlError);
         job->httpCode = code;
 
         LightLock_Lock(&job->lock);
@@ -214,6 +241,9 @@ static void netWorker(void *arg)
         LightLock_Unlock(&job->lock);
         LightEvent_Signal(&job->doneEvent);
     }
+
+    curl_slist_free_all(jsonHeaders);
+    if (curl) curl_easy_cleanup(curl);
 }
 
 static void queueInit(NetQueue &q)
