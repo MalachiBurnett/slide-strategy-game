@@ -473,16 +473,33 @@ static void buildTopLobby(UiScene &s, const UiContext &c)
 }
 
 // --- in-match top screen ---------------------------------------------------
-static void addTimerPill(UiScene &s, int x, int w, const char *label, int seconds, bool active)
+// One side's clock, as a full card rather than the pill this used to be
+// tucked into the title bar as. At 18px in the header it was legible but
+// easy to miss entirely; a chess-clock pair with the time at scale 3 is the
+// first thing the eye lands on, and the running side is the only lit panel
+// so whose turn it is reads at a glance too.
+static void addClockCard(UiScene &s, int x, int y, int w, int h,
+                         const char *label, int seconds, bool active)
 {
     if (seconds < 0) seconds = 0;
     const bool low = active && seconds < 10;
-    // The ticking clock pops against the brown bar (gold, or red when
-    // critical); the paused one stays a subtle darker pill.
-    const Color bg = low ? C_ERROR : (active ? C_ACCENT : C_PRIMARY_DK);
-    const Color fg = low ? C_PRIMARY_TXT : (active ? C_TEXT : C_ACCENT);
-    uiPill(s, x, 4, w, 18, uiStr(s, "%s %d:%02d", label, seconds / 60, seconds % 60),
-           bg, fg, EF_BOLD);
+
+    Color face  = C_BG_LIGHT;
+    Color text  = C_TEXT_SOFT;
+    Color time  = C_TEXT;
+    Color strip = C_ACCENT;
+    if (low)        { face = C_ERROR;   text = C_PRIMARY_TXT; time = C_PRIMARY_TXT; strip = darken(C_ERROR, 0.35f); }
+    else if (active){ face = C_ACCENT;  text = C_PRIMARY_DK;  time = C_TEXT;        strip = C_ACCENT_DK; }
+
+    uiGroupBegin(s);
+    UiElem &card = uiPanel(s, x, y, w, h, 10, face, strip, 4);
+    card.flags |= EF_BORDER;
+    card.fg     = active ? C_PRIMARY : C_ACCENT;
+    card.data   = active ? 3 : 1;
+    uiTextIn(s, x, y + 7, w, label, 1, text, EF_CENTER | EF_BOLD);
+    uiTextIn(s, x, y + 20, w, uiStr(s, "%d:%02d", seconds / 60, seconds % 60), 3,
+             time, EF_CENTER | EF_BOLD);
+    uiGroupEnd(s);
 }
 
 static void buildTopGame(UiScene &s, const UiContext &c)
@@ -493,8 +510,8 @@ static void buildTopGame(UiScene &s, const UiContext &c)
     {
         const char *title = "DRAW";
         Color tint = C_TEXT;
-        if (game.winner == game.player)                       { title = "YOU WIN!";  tint = C_SUCCESS; }
-        else if (game.winner == 'W' || game.winner == 'B')    { title = "YOU LOSE";  tint = C_ERROR; }
+        if (game.winner == game.player)                    { title = "YOU WIN!"; tint = C_SUCCESS; }
+        else if (game.winner == 'W' || game.winner == 'B') { title = "YOU LOSE"; tint = C_ERROR; }
 
         uiGroupBegin(s);
         UiElem &card = addCard(s, 40, 62, TOP_W - 80, 124, tint);
@@ -511,15 +528,43 @@ static void buildTopGame(UiScene &s, const UiContext &c)
     uiGroupBegin(s);
     uiPanel(s, 0, 0, TOP_W, 26, 0, C_PRIMARY, C_PRIMARY_DK, 3);
     uiText(s, 10, 7, "SLIDE", 1, C_PRIMARY_TXT, EF_BOLD);
+    // Both sides are the same person in a local match, so "your move" would
+    // be nonsense there — the turn card below already says whose it is.
+    uiTextIn(s, TOP_W - 220, 7, 208,
+             !game.isOnline    ? "LOCAL MATCH"
+             : game.turn == game.player ? "YOUR MOVE" : "OPPONENT TO MOVE",
+             1, C_ACCENT, EF_RIGHT);
+    uiGroupEnd(s);
+
+    // Chess-clock row. Your own side is always on the left, matching the
+    // piece rails either side of the board on the bottom screen.
+    const char leftPiece = game.player == 'B' ? 'B' : 'W';
     if (game.isOnline)
     {
-        addTimerPill(s, 204, 90, "W", game.timerW, game.turn == 'W');
-        addTimerPill(s, 300, 90, "B", game.timerB, game.turn == 'B');
+        const int leftSecs  = leftPiece == 'W' ? game.timerW : game.timerB;
+        const int rightSecs = leftPiece == 'W' ? game.timerB : game.timerW;
+        addClockCard(s, 12, 30, 184, 54,
+                     leftPiece == 'W' ? "WHITE - YOU" : "BLACK - YOU",
+                     leftSecs, game.turn == leftPiece);
+        addClockCard(s, 204, 30, 184, 54,
+                     leftPiece == 'W' ? "BLACK" : "WHITE",
+                     rightSecs, game.turn != leftPiece);
     }
     else
-        uiTextIn(s, TOP_W - 220, 7, 208,
-                 game.turn == 'W' ? "WHITE TO MOVE" : "BLACK TO MOVE", 1, C_ACCENT, EF_RIGHT);
-    uiGroupEnd(s);
+    {
+        // Local matches have no clock, so the same band carries the one thing
+        // that does change hands instead.
+        uiGroupBegin(s);
+        UiElem &turnCard = uiPanel(s, 12, 30, TOP_W - 24, 54, 10, C_ACCENT, C_ACCENT_DK, 4);
+        turnCard.flags |= EF_BORDER;
+        turnCard.fg     = C_PRIMARY;
+        turnCard.data   = 3;
+        uiTextIn(s, 12, 37, TOP_W - 24, "NO TIME LIMIT", 1, C_PRIMARY_DK, EF_CENTER | EF_BOLD);
+        uiTextIn(s, 12, 50, TOP_W - 24,
+                 game.turn == 'W' ? "WHITE TO MOVE" : "BLACK TO MOVE", 2, C_TEXT,
+                 EF_CENTER | EF_BOLD);
+        uiGroupEnd(s);
+    }
 
     const bool waiting     = game.isOnline && game.turn != game.player;
     const bool stepConfirm = game.confirmMove;
@@ -529,14 +574,14 @@ static void buildTopGame(UiScene &s, const UiContext &c)
     static const char *tabs[3] = {"SELECT", "MOVE", "SEND"};
     const bool active[3] = {stepSelect, stepMove, stepConfirm};
     for (int i = 0; i < 3; ++i)
-        uiPill(s, 16 + i * 126, 36, 116, 24, tabs[i],
+        uiPill(s, 16 + i * 126, 90, 116, 20, tabs[i],
                active[i] ? C_PRIMARY : C_BG_DARK,
                active[i] ? C_PRIMARY_TXT : C_TEXT_SOFT, EF_BOLD);
 
     // One card, rewritten per step rather than swapped for a different
     // layout — that keeps the eye anchored while a move is being made.
     uiGroupBegin(s);
-    UiElem &card = addCard(s, 12, 70, TOP_W - 24, 104, C_ACCENT);
+    UiElem &card = addCard(s, 12, 116, TOP_W - 24, 92, C_ACCENT);
     card.accent = 5;
 
     const char *quitAction = game.isOnline ? "CONCEDE" : "EXIT";
@@ -575,17 +620,17 @@ static void buildTopGame(UiScene &s, const UiContext &c)
         rowCount = 3;
     }
 
-    uiText(s, 28, 82, heading, 1, C_PRIMARY, EF_BOLD);
+    uiText(s, 28, 126, heading, 1, C_PRIMARY, EF_BOLD);
     for (int i = 0; i < rowCount; ++i)
     {
-        const int y = 104 + i * 22;
+        const int y = 146 + i * 20;
         const int w = textWidth(rows[i].key, 1) + 16;
         uiPill(s, 28, y, w, 16, rows[i].key, C_PRIMARY, C_PRIMARY_TXT, EF_BOLD);
         uiText(s, 28 + w + 10, y + 4, rows[i].what, 1, C_TEXT);
     }
     uiGroupEnd(s);
 
-    addStatus(s, 12, 184, TOP_W - 24, game.statusMsg, C_PRIMARY, 6);
+    addStatus(s, 12, 214, TOP_W - 24, game.statusMsg, C_PRIMARY, 2);
 }
 
 void buildTopScene(UiScene &s, const UiContext &c)
