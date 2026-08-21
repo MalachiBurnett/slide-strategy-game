@@ -200,7 +200,15 @@ static void drawZoneSlide(uint8_t *fb, const uint8_t *src, int w, int h,
     // overshoot bounce's magnitude proportional to the zone itself rather
     // than ballooning for small zones like the title bar.
     const int dist = horizontal ? z.w : z.h;
-    const float frac = entering ? (1.0f - easeOutBack(t)) : easeInQuad(t);
+    // easeOutBack overshoots past its target before settling, which would
+    // send `frac` slightly negative here — flipping `shift`'s sign for a few
+    // frames and, since the blit below is clipped to the zone's own
+    // rectangle (see blitRegionShiftedX/Y), baring a strip of whatever was
+    // drawn underneath (the background, or the catch-all zone) right at the
+    // zone's edge. The zone is already fully revealed by the time that
+    // happens, so clamp at zero instead of letting it "un-reveal".
+    float frac = entering ? (1.0f - easeOutBack(t)) : easeInQuad(t);
+    if (frac < 0.0f) frac = 0.0f;
     const int shift = sign * (int)(frac * dist);
     if (horizontal)
         blitRegionShiftedX(fb, src, w, h, z.x, z.y, z.w, z.h, shift);

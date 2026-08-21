@@ -108,22 +108,23 @@ void drawRoundRect(uint8_t *fb, int w, int h,
         fillRect(fb, w, h, x0 + t,         y0 + r,            1, rh - 2*r, c); // left
         fillRect(fb, w, h, x0 + rw - 1 - t, y0 + r,           1, rh - 2*r, c); // right
     }
-    float innerR = (float)(r - thick);
-    float outerR = (float)r;
+    // Corners: walk the same per-row margin() used by fillRoundRect below
+    // and paint `thick` pixels starting right at that margin, so the border
+    // sits flush against the fill's own corner curve. This used to compute
+    // the ring from a Euclidean distance to a circle centred a half-pixel
+    // off from fillRoundRect's — the two curves disagreed by a pixel here
+    // and there, leaving stray background-coloured gaps speckled into the
+    // corner instead of a clean curve.
     for (int dy = 0; dy < r; ++dy)
     {
-        for (int dx = 0; dx < r; ++dx)
+        int margin = r - (int)sqrtf((float)(r*r - (r - dy)*(r - dy)));
+        for (int t = 0; t < thick && margin + t < rw - margin - t; ++t)
         {
-            float cx2 = (float)(r - 1 - dx);
-            float cy2 = (float)(r - 1 - dy);
-            float dist = sqrtf(cx2*cx2 + cy2*cy2);
-            if (dist >= innerR && dist < outerR)
-            {
-                drawPixel(fb, w, h, x0 + dx,          y0 + dy,          c); // TL
-                drawPixel(fb, w, h, x0 + rw - 1 - dx, y0 + dy,          c); // TR
-                drawPixel(fb, w, h, x0 + dx,          y0 + rh - 1 - dy, c); // BL
-                drawPixel(fb, w, h, x0 + rw - 1 - dx, y0 + rh - 1 - dy, c); // BR
-            }
+            int dx = margin + t;
+            drawPixel(fb, w, h, x0 + dx,          y0 + dy,          c); // TL
+            drawPixel(fb, w, h, x0 + rw - 1 - dx, y0 + dy,          c); // TR
+            drawPixel(fb, w, h, x0 + dx,          y0 + rh - 1 - dy, c); // BL
+            drawPixel(fb, w, h, x0 + rw - 1 - dx, y0 + rh - 1 - dy, c); // BR
         }
     }
 }
