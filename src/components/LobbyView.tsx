@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart, Eye, HelpCircle, Menu, X } from 'lucide-react';
+import { Play, Trophy, LogOut, Hash, Users, ClipboardList, Zap, User, Heart, Eye, HelpCircle, Menu, X, Gamepad2, Download } from 'lucide-react';
 import { UserData, LeaderboardEntry, Turn } from '../types/game';
 import { Socket } from 'socket.io-client';
+import QRCode from 'qrcode';
 
 interface LobbyViewProps {
   user: UserData | null;
@@ -72,6 +73,20 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
   const [showPatchNotes, setShowPatchNotes] = useState(false);
   const [playersInGame, setPlayersInGame] = useState<Set<string>>(new Set());
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [threeDsQr, setThreeDsQr] = useState<string | null>(null);
+
+  // FBI's remote install scans a QR holding the plain URL of the .cia, so the
+  // code has to point at this deployment's own download route rather than a
+  // hardcoded host.
+  const threeDsDownloadUrl = `${window.location.origin}/3ds-download/`;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    QRCode.toDataURL(threeDsDownloadUrl, { margin: 1, width: 320, errorCorrectionLevel: 'M' })
+      .then((url) => { if (!cancelled) setThreeDsQr(url); })
+      .catch(() => { if (!cancelled) setThreeDsQr(null); });
+    return () => { cancelled = true; };
+  }, [threeDsDownloadUrl]);
 
   React.useEffect(() => {
     if (showLeaderboard) {
@@ -400,7 +415,50 @@ export const LobbyView: React.FC<LobbyViewProps> = ({
             </button>
           </motion.div>
 
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            className="bg-[var(--bgLight)] p-6 sm:p-8 rounded-3xl shadow-xl border-b-8 border-red-500 border-opacity-50 md:col-span-2"
+          >
+            <div className="bg-red-500 w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
+              <Gamepad2 className="w-7 h-7 sm:w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold mb-3 sm:mb-4">Play on Your 3DS</h2>
+            <p className="text-sm sm:text-base opacity-60 mb-6 leading-relaxed">
+              Slide has a native Nintendo 3DS build. Install it on a modded console and take your ranked matches on the go.
+            </p>
 
+            <div className="flex flex-col sm:flex-row gap-6 sm:gap-8 items-center sm:items-start">
+              <div className="bg-white p-3 rounded-2xl shadow-lg shrink-0">
+                {threeDsQr ? (
+                  <img src={threeDsQr} alt="QR code linking to the Slide 3DS download" className="w-40 h-40 sm:w-44 sm:h-44" />
+                ) : (
+                  <div className="w-40 h-40 sm:w-44 sm:h-44 flex items-center justify-center text-xs text-black text-center opacity-60 px-2">
+                    Generating QR code...
+                  </div>
+                )}
+              </div>
+
+              <div className="flex-1 w-full">
+                <p className="text-sm font-bold text-red-500 mb-3 uppercase tracking-wide">How to install</p>
+                <ol className="space-y-2 text-sm sm:text-base opacity-80 list-decimal list-inside">
+                  <li>Open <span className="font-bold">FBI</span> on your modded 3DS.</li>
+                  <li>Choose <span className="font-bold">Remote Install</span>.</li>
+                  <li>Choose <span className="font-bold">Scan QR Code</span> and point the camera at the code.</li>
+                  <li>Confirm the install, then launch Slide from your HOME menu.</li>
+                </ol>
+                <p className="text-xs opacity-50 mt-4">
+                  Requires custom firmware. Sign in here first to authorize your 3DS.
+                </p>
+                <a
+                  href={threeDsDownloadUrl}
+                  className="mt-4 inline-flex items-center justify-center gap-2 w-full sm:w-auto px-6 py-3 bg-red-500 text-white rounded-2xl font-bold text-base hover:opacity-90 transition-all shadow-lg shadow-red-500/20"
+                >
+                  <Download className="w-5 h-5" />
+                  Download .cia
+                </a>
+              </div>
+            </div>
+          </motion.div>
 
           {privateCode && (
           <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
