@@ -199,3 +199,31 @@ void confirmOnlineMove(GameUiState &game, bool &sendPending)
     game.confirmMove = true;
     sendPending = true;
 }
+
+bool checkWin(const char board[6][6], char &winner, int outR[4], int outC[4])
+{
+    auto line = [&](int r0, int c0, int dr, int dc)
+    {
+        const char p = board[r0][c0];
+        if (p == '0') return false;
+        for (int i = 1; i < 4; ++i)
+            if (board[r0 + dr * i][c0 + dc * i] != p) return false;
+        winner = p;
+        for (int i = 0; i < 4; ++i) { outR[i] = r0 + dr * i; outC[i] = c0 + dc * i; }
+        return true;
+    };
+
+    for (int r = 0; r < 6; ++r)
+        for (int c = 0; c <= 6 - 4; ++c)
+            if (line(r, c, 0, 1)) return true;
+    for (int c = 0; c < 6; ++c)
+        for (int r = 0; r <= 6 - 4; ++r)
+            if (line(r, c, 1, 0)) return true;
+    for (int r = 0; r <= 6 - 4; ++r)
+        for (int c = 0; c <= 6 - 4; ++c)
+            if (line(r, c, 1, 1)) return true;
+    for (int r = 0; r <= 6 - 4; ++r)
+        for (int c = 3; c < 6; ++c)
+            if (line(r, c, 1, -1)) return true;
+    return false;
+}

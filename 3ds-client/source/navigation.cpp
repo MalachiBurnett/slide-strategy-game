@@ -14,7 +14,6 @@ int focusCount(AppState state, LobbyPage page)
     if (page == LobbyPage::PRIVATE_CHOICE) return 4;
     if (page == LobbyPage::PRIVATE_JOIN) return 3;
     if (page == LobbyPage::LOCAL_SETTINGS) return 3;
-    if (page == LobbyPage::SPECTATE_COMING) return 1;
     return 6;
 }
 
@@ -64,11 +63,6 @@ int focusPoints(AppState state, LobbyPage page, int outX[6], int outY[6])
         else if (page == LobbyPage::PRIVATE_WAIT)
         {
             static const int p[][2] = {{BOT_W / 2, 175}};
-            pts = p; n = 1;
-        }
-        else if (page == LobbyPage::SPECTATE_COMING)
-        {
-            static const int p[][2] = {{82, 185}};
             pts = p; n = 1;
         }
         else
@@ -132,7 +126,6 @@ namespace
         if (page == LobbyPage::PRIVATE_CHOICE) return PCHOICE[focus < 0 ? 0 : (focus > 3 ? 3 : focus)];
         if (page == LobbyPage::PRIVATE_JOIN) return PJOIN[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
         if (page == LobbyPage::LOCAL_SETTINGS) return LOCALSET[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
-        if (page == LobbyPage::SPECTATE_COMING) return QUEUE_ONE[0];
         return SETTINGS[focus < 0 ? 0 : (focus > 5 ? 5 : focus)];
     }
 }

@@ -41,4 +41,10 @@ void applyGameMove(GameUiState &game);
 // flags `sendPending` so the caller submits it to the server.
 void confirmOnlineMove(GameUiState &game, bool &sendPending);
 
+// Checks the board for 4-in-a-row (any of the 4 directions). On a win,
+// returns true, writes the winning colour to `winner`, and fills outR/outC
+// with the 4 cells of the line. Online games get their result from the
+// server instead; the tutorial is the one local caller that needs this.
+bool checkWin(const char board[6][6], char &winner, int outR[4], int outC[4]);
+
 #endif // GAME_LOGIC_H

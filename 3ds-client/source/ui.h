@@ -41,7 +41,6 @@ enum class LobbyPage
     PRIVATE_WAIT,
     LOCAL_SETTINGS,
     QUEUE,
-    SPECTATE_COMING,
 };
 
 // ---------------------------------------------------------------------------
@@ -70,7 +69,7 @@ constexpr Button BTN_PRIVATE_ROOM   = {164, 76, 148, 42, "Private room", C_BG_LI
 constexpr Button BTN_CREATE_ROOM    = {8, 88, 148, 42, "Create room", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};
 constexpr Button BTN_JOIN_ROOM      = {164, 88, 148, 42, "Join room", C_BG_LIGHT, C_PRIMARY, C_ACCENT};
 constexpr Button BTN_LOCAL_PLAY     = {8, 124, 148, 42, "Local play", C_ACCENT, C_TEXT, C_ACCENT_DK};
-constexpr Button BTN_SPECTATE       = {164, 124, 148, 42, "Spectate", C_PURPLE, C_PRIMARY_TXT, C_PURPLE_DK};
+constexpr Button BTN_TUTORIAL       = {164, 124, 148, 42, "Tutorial", C_PURPLE, C_PRIMARY_TXT, C_PURPLE_DK};
 constexpr Button BTN_BACK           = {8, 172, 148, 26, "Back", C_BG_LIGHT, C_TEXT, C_ACCENT};
 constexpr Button BTN_CONTINUE       = {164, 172, 148, 26, "Continue", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};
 constexpr Button BTN_START_LOCAL    = {164, 172, 148, 26, "Start local", C_PRIMARY, C_PRIMARY_TXT, C_PRIMARY_DK};

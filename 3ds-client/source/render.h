@@ -38,12 +38,15 @@ static constexpr Color C_SUCCESS    = { 34, 139,  34};
 static constexpr Color C_ERROR      = {180,  30,  30};
 
 // Website-derived extras: the `border-b-8` shade under a raised card, the
-// 60%-opacity body copy, and the purple used for the Spectate card.
+// 60%-opacity body copy, and the purple used for the Tutorial card.
 static constexpr Color C_PRIMARY_DK = { 92,  45,  12};
 static constexpr Color C_ACCENT_DK  = {160, 132,  96};
 static constexpr Color C_TEXT_SOFT  = {143, 126, 110};
 static constexpr Color C_PURPLE     = {139,  92, 246};
 static constexpr Color C_PURPLE_DK  = { 88,  55, 168};
+// "Look here" ring used by the tutorial to call out a square without
+// implying it is actually selected (that's C_SELECTED, in screens.cpp).
+static constexpr Color C_HINT       = {249, 115,  22};
 
 // Board colours — match the website's default "Wooden (Classic)" theme.
 static constexpr Color C_BOARD_LIGHT  = {222, 203, 164};

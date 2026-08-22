@@ -18,6 +18,8 @@ struct UiContext
     AppState    state;
     LobbyPage   page;
     bool        gameActive;
+    bool        tutorialActive;
+    int         tutorialStep;
     bool        confirmingQuit;
     const char *username;
     const char *elo;

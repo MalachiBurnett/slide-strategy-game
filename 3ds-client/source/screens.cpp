@@ -3,6 +3,7 @@
  * See screens.h for the contract and uikit.h for how these get animated.
  */
 #include "screens.h"
+#include "tutorial.h"
 
 #include <cstdio>
 
@@ -11,10 +12,19 @@
 // ---------------------------------------------------------------------------
 enum : int16_t
 {
-    CW_BOARD   = 1,   // the 6x6 match board (ptr -> GameUiState)
-    CW_PREVIEW = 2,   // decorative mini board on the lobby's top screen
-    CW_CHIP_W  = 3,   // a White piece token
-    CW_CHIP_B  = 4,   // a Black piece token
+    CW_BOARD      = 1,   // the 6x6 match board (ptr -> GameUiState)
+    CW_PREVIEW    = 2,   // decorative mini board on the lobby's top screen
+    CW_CHIP_W     = 3,   // a White piece token
+    CW_CHIP_B     = 4,   // a Black piece token
+    CW_TUT_BOARD  = 5,   // the tutorial's board (ptr -> TutorialBoardView)
+};
+
+// The tutorial rings a step's guidance squares in orange on top of the
+// board's usual selected/movable rings — see drawBoardWidget's `hint` arg.
+struct TutorialBoardView
+{
+    const GameUiState *game;
+    int hlR[2], hlC[2], hlCount;
 };
 
 static const Color C_MOVE     = { 64, 190,  96};
@@ -63,7 +73,7 @@ static bool gameHasMove(const GameUiState &game, int r, int c)
 // one frame-width in. Everything is derived from the passed-in origin rather
 // than the layout constants, which is what lets the whole board slide.
 static void drawBoardWidget(uint8_t *fb, int w, int h, const GameUiState &game,
-                            int x, int y)
+                            int x, int y, const TutorialBoardView *hint = nullptr)
 {
     constexpr int FRAME = 6;
     fillRoundRect(fb, w, h, x, y, BOARD_PX + FRAME * 2, BOARD_PX + FRAME * 2, 10, C_BOARD_BORDER);
@@ -82,13 +92,18 @@ static void drawBoardWidget(uint8_t *fb, int w, int h, const GameUiState &game,
             const bool cursor   = r == game.cursorRow && c == game.cursorCol;
             const bool movable  = !game.pieceSelected && gameHasMove(game, r, c);
             const bool flashing = game.flashTimer > 0;
+            bool hinted = false;
+            if (hint) for (int i = 0; i < hint->hlCount; ++i)
+                if (hint->hlR[i] == r && hint->hlC[i] == c) hinted = true;
+            hinted = hinted && !selected && !target;
 
             fillRect(fb, w, h, px, py, tile - 1, tile - 1,
                      (r + c) % 2 == 0 ? C_BOARD_LIGHT : C_BOARD_DARK);
-            if (movable || selected || target)
+            if (movable || selected || target || hinted)
             {
                 Color ring = C_MOVE;
                 if (selected || target) ring = flashing ? C_ERROR : C_SELECTED;
+                if (hinted) ring = C_HINT;
                 drawRoundRect(fb, w, h, px + 2, py + 2, tile - 5, tile - 5, 4, 3, ring);
             }
             if (cursor)
@@ -120,6 +135,13 @@ static void customDraw(uint8_t *fb, int w, int h, const UiElem &e, int x, int y)
     {
     case CW_BOARD:
         if (e.ptr) drawBoardWidget(fb, w, h, *(const GameUiState *)e.ptr, x, y);
+        break;
+    case CW_TUT_BOARD:
+        if (e.ptr)
+        {
+            const auto *view = (const TutorialBoardView *)e.ptr;
+            drawBoardWidget(fb, w, h, *view->game, x, y, view);
+        }
         break;
     case CW_PREVIEW:
         drawPreviewWidget(fb, w, h, x, y, e.w);
@@ -265,6 +287,9 @@ int32_t topSceneKey(const UiContext &c)
     // steps rewrite the panel in place, because throwing the whole screen
     // off and back for every tap would make play feel sluggish.
     if (c.gameActive) return 1000 + ((c.game && c.game->gameOver) ? 1 : 0);
+    // Same idea for the tutorial: only finishing the script re-slides the
+    // page, every step in between just rewrites the caption in place.
+    if (c.tutorialActive) return 3000 + ((c.tutorialStep >= TUTORIAL_STEP_COUNT - 1) ? 1 : 0);
     return (int32_t)c.state * 100 + (int32_t)c.page;
 }
 
@@ -272,6 +297,7 @@ int32_t bottomSceneKey(const UiContext &c)
 {
     if (c.confirmingQuit) return 900;
     if (c.gameActive) return 2000;
+    if (c.tutorialActive) return 4000;
     return (int32_t)c.state * 100 + (int32_t)c.page;
 }
 
@@ -636,12 +662,53 @@ static void buildTopGame(UiScene &s, const UiContext &c)
     addStatus(s, 12, 214, TOP_W - 24, game.statusMsg, C_PRIMARY, 2);
 }
 
+// --- tutorial top screen ---------------------------------------------------
+static void buildTopTutorial(UiScene &s, const UiContext &c)
+{
+    const GameUiState &t = *c.game;
+    const TutorialStep &step = TUTORIAL_STEPS[c.tutorialStep];
+    const bool userTurn = step.action == TutorialAction::UserMove ||
+                         step.action == TutorialAction::UserWin;
+    const bool finished = c.tutorialStep >= TUTORIAL_STEP_COUNT - 1;
+
+    topTitleBar(s, "TUTORIAL");
+
+    uiGroupBegin(s);
+    uiIcon(s, 12, 34, 30, Glyph::Person, C_PRIMARY, C_PRIMARY_TXT);
+    uiText(s, 50, 36, "TUTORIAL BOT", 1, C_PRIMARY, EF_BOLD);
+    uiPill(s, 50, 52, userTurn ? 92 : 96, 16, userTurn ? "YOUR TURN" : "BOT'S TURN",
+           userTurn ? C_SUCCESS : C_ACCENT, userTurn ? C_PRIMARY_TXT : C_PRIMARY_DK, EF_BOLD);
+    uiGroupEnd(s);
+
+    uiGroupBegin(s);
+    UiElem &card = addCard(s, 12, 76, TOP_W - 24, 112, C_ACCENT);
+    card.accent = 5;
+    addStatus(s, 24, 90, TOP_W - 48, t.statusMsg, C_TEXT, 6);
+    uiGroupEnd(s);
+
+    if (!userTurn)
+    {
+        const char *label = finished ? "A - FINISH" : "A - CONTINUE";
+        const int bw = textWidth(label, 1) + 20;
+        uiPill(s, TOP_W - bw - 16, 200, bw, 22, label, C_PRIMARY, C_PRIMARY_TXT, EF_BOLD);
+    }
+    else
+    {
+        uiText(s, 16, 202,
+               t.pieceSelected ? "DPAD AIM - A CONFIRM - B CANCEL"
+                               : "TOUCH OR DPAD+A TO PICK UP THE PIECE",
+               1, C_TEXT_SOFT);
+    }
+    uiTextIn(s, 16, 220, TOP_W - 32, "SELECT + B TO EXIT THE TUTORIAL", 1, C_TEXT_SOFT, 0);
+}
+
 void buildTopScene(UiScene &s, const UiContext &c)
 {
     uiSceneBegin(s, TOP_W, TOP_H, true, topSceneKey(c));
 
-    if (c.confirmingQuit)      { buildTopQuitConfirm(s); return; }
-    if (c.gameActive && c.game) { buildTopGame(s, c);    return; }
+    if (c.confirmingQuit)          { buildTopQuitConfirm(s); return; }
+    if (c.gameActive && c.game)     { buildTopGame(s, c);     return; }
+    if (c.tutorialActive && c.game) { buildTopTutorial(s, c); return; }
 
     switch (c.state)
     {
@@ -666,10 +733,6 @@ void buildTopScene(UiScene &s, const UiContext &c)
         {
         case LobbyPage::PRIVATE_WAIT:    buildTopPrivateWait(s, c); break;
         case LobbyPage::QUEUE:           buildTopQueue(s, c); break;
-        case LobbyPage::SPECTATE_COMING:
-            buildTopSimple(s, c, "SPECTATE", Glyph::Eye, "COMING SOON",
-                           "Watching other players from the console is not ready yet.");
-            break;
         default:                         buildTopLobby(s, c); break;
         }
         break;
@@ -740,7 +803,7 @@ static void buildBottomHome(UiScene &s, const UiContext &c)
     addButton(s, BTN_PUBLIC_MATCH, c, 0, Glyph::Play);
     addButton(s, BTN_PRIVATE_ROOM, c, 1, Glyph::Hash);
     addButton(s, BTN_LOCAL_PLAY,   c, 2, Glyph::Users);
-    addButton(s, BTN_SPECTATE,     c, 3, Glyph::Eye);
+    addButton(s, BTN_TUTORIAL,     c, 3, Glyph::Grid);
     addButton(s, BTN_SIGNOUT,      c, 4, Glyph::Exit);
     addButton(s, BTN_QUIT,         c, 5, Glyph::Cross);
     addStatus(s, 10, 170, BOT_W - 20, c.statusMsg, C_PRIMARY, 2);
@@ -854,17 +917,6 @@ static void buildBottomPrivateWait(UiScene &s, const UiContext &c)
     addButton(s, BTN_CANCEL_PRIVATE, c, 0, Glyph::Cross);
 }
 
-static void buildBottomSpectate(UiScene &s, const UiContext &c)
-{
-    addPageHeader(s, 16, 10, Glyph::Eye, C_PURPLE, "SPECTATE", "Not on 3DS yet");
-    uiWrap(s, 16, 56, BOT_W - 32,
-           "Spectating is only on the website for now. It is coming to the console later.",
-           1, C_TEXT_SOFT);
-    addStatus(s, 16, 110, BOT_W - 32, c.statusMsg, C_PRIMARY, 6);
-    addButton(s, BTN_BACK, c, 0, Glyph::Back);
-    addButton(s, BTN_QUIT, c, -1, Glyph::Cross);
-}
-
 static void buildBottomGame(UiScene &s, const UiContext &c)
 {
     const GameUiState &game = *c.game;
@@ -901,12 +953,33 @@ static void buildBottomGame(UiScene &s, const UiContext &c)
     uiGroupEnd(s);
 }
 
+// The board itself is identical to a real match's; only the guidance ring
+// (via TutorialBoardView) and the lack of the left/right turn rail differ,
+// since the tutorial only ever has the one side worth labelling.
+static void buildBottomTutorial(UiScene &s, const UiContext &c)
+{
+    static TutorialBoardView view;
+    const TutorialStep &step = TUTORIAL_STEPS[c.tutorialStep];
+    view.game = c.game;
+    view.hlCount = step.hlCount;
+    for (int i = 0; i < 2; ++i) { view.hlR[i] = step.hlR[i]; view.hlC[i] = step.hlC[i]; }
+
+    const int frame = 6;
+    UiElem &board = uiRaw(s, ElemKind::Custom, BOARD_X - frame, BOARD_Y - frame,
+                          BOARD_PX + frame * 2, BOARD_PX + frame * 2);
+    board.data = CW_TUT_BOARD;
+    board.ptr  = &view;
+
+    uiTextIn(s, 0, 4, BOT_W, "YOU PLAY BLACK", 1, C_TEXT_SOFT, EF_CENTER);
+}
+
 void buildBottomScene(UiScene &s, const UiContext &c)
 {
     uiSceneBegin(s, BOT_W, BOT_H, false, bottomSceneKey(c));
 
-    if (c.confirmingQuit)       { buildBottomQuitConfirm(s, c); return; }
-    if (c.gameActive && c.game) { buildBottomGame(s, c);        return; }
+    if (c.confirmingQuit)           { buildBottomQuitConfirm(s, c); return; }
+    if (c.gameActive && c.game)     { buildBottomGame(s, c);        return; }
+    if (c.tutorialActive && c.game) { buildBottomTutorial(s, c);    return; }
 
     switch (c.state)
     {
@@ -932,7 +1005,6 @@ void buildBottomScene(UiScene &s, const UiContext &c)
         case LobbyPage::LOCAL_SETTINGS:  buildBottomLocal(s, c); break;
         case LobbyPage::QUEUE:           buildBottomQueue(s, c); break;
         case LobbyPage::PRIVATE_WAIT:    buildBottomPrivateWait(s, c); break;
-        case LobbyPage::SPECTATE_COMING: buildBottomSpectate(s, c); break;
         default:                         buildBottomSettings(s, c); break;
         }
         break;

@@ -50,6 +50,7 @@
 #include "json_util.h"
 #include "navigation.h"
 #include "game_logic.h"
+#include "tutorial.h"
 
 extern "C" {
 #include "qrcodegen.h"
@@ -129,6 +130,9 @@ int main()
     bool queueing = false;
     GameUiState game = {};
     resetGame(game);
+    bool tutorialActive = false;
+    GameUiState tutorial = {};
+    int tutorialStep = 0;
     char pollingGameId[64] = {};
     u64 lastPollingTick = 0;
     // Waiting on the opponent is the latency-critical case; during our own
@@ -241,6 +245,8 @@ int main()
         ctx.state          = state;
         ctx.page           = lobbyPage;
         ctx.gameActive     = gameActive;
+        ctx.tutorialActive = tutorialActive;
+        ctx.tutorialStep   = tutorialStep;
         ctx.confirmingQuit = confirmingQuit;
         ctx.username       = username;
         ctx.elo            = elo;
@@ -254,7 +260,7 @@ int main()
         ctx.statusMsg      = statusMsg;
         ctx.privateCode    = privateCode;
         ctx.joinCode       = joinCode;
-        ctx.game           = &game;
+        ctx.game           = tutorialActive ? &tutorial : &game;
         ctx.touchX         = touchX;
         ctx.touchY         = touchY;
         ctx.touchActive    = touchActive;
@@ -850,7 +856,7 @@ main_loop:
             focusIndex = 0;
         }
 
-        if (!gameActive && (kDown & KEY_A))
+        if (!gameActive && !tutorialActive && (kDown & KEY_A))
         {
             int focusX = 0;
             int focusY = 0;
@@ -865,7 +871,7 @@ main_loop:
                 focusPressY = focusY;
             }
         }
-        else if (!gameActive && focusPressActive)
+        else if (!gameActive && !tutorialActive && focusPressActive)
         {
             if (kHeld & KEY_A)
             {
@@ -988,6 +994,97 @@ main_loop:
             goto render;
         }
 
+        if (tutorialActive)
+        {
+            const TutorialStep &step = TUTORIAL_STEPS[tutorialStep];
+            const bool waitingOnMove = step.action == TutorialAction::UserMove ||
+                                      step.action == TutorialAction::UserWin;
+            const bool quitCombo = ((kDown & KEY_B) && (kHeld & KEY_SELECT)) ||
+                                   ((kDown & KEY_SELECT) && (kHeld & KEY_B));
+
+            if (quitCombo)
+            {
+                tutorialActive = false;
+                goto render;
+            }
+
+            if (kDown & KEY_B)
+            {
+                if (waitingOnMove && tutorial.pieceSelected)
+                {
+                    tutorial.pieceSelected = false;
+                    tutorial.selectedRow = tutorial.selectedCol = -1;
+                    tutorial.targetRow = tutorial.targetCol = -1;
+                    tutorial.statusMsg = step.text;
+                }
+                else
+                {
+                    tutorialActive = false;
+                    goto render;
+                }
+            }
+
+            if (waitingOnMove)
+            {
+                int circleDir = -1;
+                if (circle.dx < -120) circleDir = 0;
+                else if (circle.dy < -120) circleDir = 1;
+                else if (circle.dx > 120) circleDir = 2;
+                else if (circle.dy > 120) circleDir = 3;
+
+                int gameDirection = -1;
+                if (kDown & KEY_DLEFT) gameDirection = 0;
+                else if (kDown & KEY_DDOWN) gameDirection = 1;
+                else if (kDown & KEY_DRIGHT) gameDirection = 2;
+                else if (kDown & KEY_DUP) gameDirection = 3;
+                else if (circleDir >= 0 && circleDir != lastCircleDir) gameDirection = circleDir;
+                else if (circleDir >= 0 && svcGetSystemTick() - lastGameRepeatTick >= GAME_REPEAT_TICKS) gameDirection = circleDir;
+                lastCircleDir = circleDir;
+
+                if (gameDirection >= 0)
+                {
+                    if (moveGameCursor(tutorial, gameDirection))
+                        lastGameRepeatTick = svcGetSystemTick();
+                    else
+                        tutorial.flashTimer = 6;
+                }
+
+                if (touched && touch.px >= BOARD_X && touch.px < BOARD_X + BOARD_PX &&
+                    touch.py >= BOARD_Y && touch.py < BOARD_Y + BOARD_PX)
+                {
+                    int c = (touch.px - BOARD_X) / BOARD_TILE;
+                    int r = (touch.py - BOARD_Y) / BOARD_TILE;
+                    if (!tutorial.pieceSelected)
+                        tutorialSelectCell(tutorial, tutorialStep, r, c);
+                    else if (trySetDirectionToCell(tutorial, r, c))
+                    {
+                        tutorial.cursorRow = tutorial.targetRow;
+                        tutorial.cursorCol = tutorial.targetCol;
+                        if (tutorialConfirmMove(tutorial, tutorialStep))
+                            tutorialActive = false;
+                    }
+                    else if (tutorial.board[r][c] == tutorial.player)
+                        tutorialSelectCell(tutorial, tutorialStep, r, c);
+                }
+
+                if ((kDown & KEY_A) && tutorial.pieceSelected)
+                {
+                    if (tutorialConfirmMove(tutorial, tutorialStep))
+                        tutorialActive = false;
+                }
+                else if (kDown & KEY_A)
+                    tutorialSelectCell(tutorial, tutorialStep, tutorial.cursorRow, tutorial.cursorCol);
+            }
+            else if (kDown & KEY_A)
+            {
+                if (tutorialAdvance(tutorial, tutorialStep))
+                    tutorialActive = false;
+            }
+
+            if (tutorial.flashTimer > 0) --tutorial.flashTimer;
+            goto render;
+        }
+
         // ----- Button actions -----
         if (touched)
         {
@@ -1043,7 +1140,11 @@ main_loop:
                         lobbyPage = LobbyPage::LOCAL_SETTINGS;
                         focusIndex = 0;
                     }
-                    else if (buttonHit(BTN_SPECTATE, touch.px, touch.py)) { lobbyPage = LobbyPage::SPECTATE_COMING; focusIndex = 0; statusMsg[0] = 0; }
+                    else if (buttonHit(BTN_TUTORIAL, touch.px, touch.py))
+                    {
+                        tutorialReset(tutorial, tutorialStep);
+                        tutorialActive = true;
+                    }
                 }
                 else if (buttonHit(BTN_BACK, touch.px, touch.py))
                 {
