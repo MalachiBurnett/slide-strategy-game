@@ -204,9 +204,9 @@ export const TutorialView: React.FC<TutorialViewProps> = ({ onComplete }) => {
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] flex flex-col items-center justify-center p-4 font-sans transition-colors duration-500 overflow-hidden">
       <div className="w-full max-w-2xl flex flex-col items-center mb-8">
-        <div className="bg-[var(--primary)] bg-opacity-10 p-6 rounded-3xl border-b-4 border-[var(--accent)] w-full mb-8 relative">
-          <div className="flex items-center gap-4 mb-2 flex-wrap">
-            <div className="w-10 h-10 bg-[var(--primary)] rounded-full flex items-center justify-center text-[var(--primaryText)] font-bold">
+        <div className="bg-[var(--primary)] bg-opacity-10 p-6 rounded-3xl border-b-4 border-[var(--accent)] w-full mb-8 flex flex-col gap-3">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="w-10 h-10 bg-[var(--primary)] rounded-full flex items-center justify-center text-[var(--primaryText)] font-bold shrink-0">
               Bot
             </div>
             <span className="font-bold text-[var(--primary)]">Tutorial Bot</span>
@@ -216,25 +216,29 @@ export const TutorialView: React.FC<TutorialViewProps> = ({ onComplete }) => {
               </span>
             )}
           </div>
-          <p className="text-xl font-bold leading-tight min-h-[3rem] text-[var(--primaryText)] pr-28">
+          {/* Fixed height regardless of message length, so the board below
+              doesn't jump around as the tutorial's lines change length. */}
+          <p className="text-lg sm:text-xl font-bold leading-snug min-h-[8rem] sm:min-h-[6rem] text-[var(--primaryText)]">
             {message}
           </p>
-          {currentStep.waitCondition === 'click' && !isBotMoving && stepIndex < STEPS.length - 1 && (
-            <button
-              onClick={handleNext}
-              className="absolute bottom-4 right-4 flex items-center gap-2 bg-[var(--primary)] text-[var(--primaryText)] px-4 py-2 rounded-xl font-bold hover:scale-105 transition-all shadow-lg"
-            >
-              Next <ChevronRight className="w-4 h-4" />
-            </button>
-          )}
-          {stepIndex === STEPS.length - 1 && (
-             <button
-                onClick={onComplete}
-                className="absolute bottom-4 right-4 flex items-center gap-2 bg-green-600 text-white px-6 py-2 rounded-xl font-bold hover:scale-105 transition-all shadow-lg"
-             >
-                Finish <Trophy className="w-4 h-4" />
-             </button>
-          )}
+          <div className="flex justify-end min-h-[44px]">
+            {currentStep.waitCondition === 'click' && !isBotMoving && stepIndex < STEPS.length - 1 && (
+              <button
+                onClick={handleNext}
+                className="flex items-center gap-2 bg-[var(--primary)] text-[var(--primaryText)] px-4 py-2 rounded-xl font-bold hover:scale-105 transition-all shadow-lg"
+              >
+                Next <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+            {stepIndex === STEPS.length - 1 && (
+               <button
+                  onClick={onComplete}
+                  className="flex items-center gap-2 bg-green-600 text-white px-6 py-2 rounded-xl font-bold hover:scale-105 transition-all shadow-lg"
+               >
+                  Finish <Trophy className="w-4 h-4" />
+               </button>
+            )}
+          </div>
         </div>
 
         <div className="relative bg-[var(--boardBorder)] p-4 rounded-3xl shadow-2xl border-b-8 border-[var(--secondary)]">
