@@ -536,7 +536,15 @@ static void buildTopGame(UiScene &s, const UiContext &c)
     {
         const char *title = "DRAW";
         Color tint = C_TEXT;
-        if (game.winner == game.player)                    { title = "YOU WIN!";    tint = C_SUCCESS; }
+        // Local play is two people passing one console — there's no "you" to
+        // frame the result around, so name the winning colour instead of
+        // reusing the online YOU WIN/LOSE framing.
+        if (!game.isOnline)
+        {
+            if (game.winner == 'W')      { title = "WHITE WINS!"; tint = C_SUCCESS; }
+            else if (game.winner == 'B') { title = "BLACK WINS!"; tint = C_SUCCESS; }
+        }
+        else if (game.winner == game.player)                { title = "YOU WIN!";    tint = C_SUCCESS; }
         else if (game.winner == 'W' || game.winner == 'B') { title = "YOU LOSE";    tint = C_ERROR; }
         // '-' means the match stopped without the server reporting a result
         // (opponent vanished, game record gone) — not the same as a draw.

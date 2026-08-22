@@ -237,6 +237,35 @@ int main()
         timerSync(w < 0 ? 0 : w, b < 0 ? 0 : b);
     };
 
+    // Local (same-console) games have no server to report a result, so this
+    // is the only place a match ever ends: after every local move, check for
+    // 4-in-a-row, then for the side to move having no legal move anywhere
+    // (a proper stalemate is vanishingly rare on a board this open, but an
+    // ungoverned "nothing happens" is worse than just ending the match).
+    auto applyLocalMove = [&]()
+    {
+        applyGameMove(game);
+
+        char winner = 0;
+        int wr[4], wc[4];
+        if (checkWin(game.board, winner, wr, wc))
+        {
+            game.gameOver = true;
+            game.winner = winner;
+            game.statusMsg = "Game over";
+            return;
+        }
+
+        for (int r = 0; r < 6; ++r)
+            for (int c = 0; c < 6; ++c)
+                if (game.board[r][c] == game.player && hasLegalDestination(game, r, c))
+                    return;
+
+        game.gameOver = true;
+        game.winner = 0;
+        game.statusMsg = "No legal moves left for either side";
+    };
+
     // Assembles the read-only view of application state the scene builders
     // work from. Everything they draw is a pure function of this.
     auto buildContext = [&](int touchX, int touchY, bool touchActive) -> UiContext
@@ -976,7 +1005,7 @@ main_loop:
                     if (onlineGame)
                         confirmOnlineMove(game, sendPending);
                     else
-                        applyGameMove(game);
+                        applyLocalMove();
                 }
                 else if (game.board[r][c] == game.player)
                     selectGamePiece(game, r, c);
@@ -986,7 +1015,7 @@ main_loop:
                 if (onlineGame)
                     confirmOnlineMove(game, sendPending);
                 else
-                    applyGameMove(game);
+                    applyLocalMove();
             }
             else if (kDown & KEY_A)
                 selectGamePiece(game, game.cursorRow, game.cursorCol);
