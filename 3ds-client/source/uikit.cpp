@@ -297,7 +297,9 @@ static void drawButtonElem(uint8_t *fb, int w, int h, const UiElem &e, int x, in
     const bool pressed = (e.flags & EF_PRESSED) != 0;
     const bool focused = (e.flags & EF_FOCUS) != 0;
     const Color bg   = pressed ? mix(e.bg, C_SUCCESS, 0.75f) : e.bg;
-    const Color fg   = pressed ? C_PRIMARY_TXT : e.fg;
+    // The pressed face is mostly the fixed success green, which several
+    // themes' primaryTxt is far too dark to read against.
+    const Color fg   = pressed ? inkOn(bg, C_PRIMARY_TXT) : e.fg;
     const int   r    = e.h >= 30 ? 12 : 8;
     // Raised while idle — the website's border-b-8 card — and flush when
     // pressed, so the button reads as physically pushed in rather than

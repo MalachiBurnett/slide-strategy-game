@@ -26,6 +26,8 @@
  *   net         — worker thread + HTTP GET/POST via curl, plus the blocking
  *                 NetCall helper and buildNetError (net.h / net.cpp)
  *   auth_store  — SD card auth code         (auth_store.h / auth_store.cpp)
+ *   theme       — the website's colour themes + the live palette they write
+ *                 into (theme.h / theme.cpp)
  *   ui          — button geometry + shared app state types (ui.h / ui.cpp)
  *   json_util   — tiny flat-JSON field/board extractor (json_util.h / .cpp)
  *   navigation  — D-pad/circle-pad focus traversal + lobby back button
@@ -44,6 +46,7 @@
 #include "render.h"
 #include "net.h"
 #include "auth_store.h"
+#include "theme.h"
 #include "ui.h"
 #include "uikit.h"
 #include "screens.h"
@@ -120,6 +123,12 @@ int main()
     char joinCode[32]   = {};
     char privateCode[16] = {};
     LobbyPage lobbyPage = LobbyPage::HOME;
+    // Theme picker. `themeIndex` is what the palette is painted in right now
+    // — browsing the picker previews live — and `themeSaved` is the last
+    // committed choice, which is what a preview reverts to if the player
+    // leaves without applying.
+    int themeIndex = 0;
+    int themeSaved = 0;
     int focusIndex = 0;
     bool focusVisible = false;
     bool isRated = true;
@@ -218,6 +227,47 @@ int main()
         }
     };
 
+    // The theme belongs to the account, so a login response is the authority
+    // on it — but only when it names one this build knows about. If the
+    // website has gained a theme the client has not, the player's own stored
+    // choice is left alone rather than being reset to the default.
+    auto adoptThemeFromLogin = [&](const char *json)
+    {
+        if (!json) return;
+        // A guest row is created fresh on the server with the default theme
+        // and the console gets no authCode to write one back with, so taking
+        // its theme would just wipe the player's own choice every time they
+        // play as a guest.
+        char guest[8] = {};
+        if (jsonExtract(json, "is_guest", guest, sizeof(guest)) &&
+            strncmp(guest, "true", 4) == 0) return;
+
+        char themeId[24] = {};
+        if (!jsonExtract(json, "theme", themeId, sizeof(themeId))) return;
+        const int idx = themeIndexById(themeId);
+        if (idx < 0) return;
+        themeApply(idx);
+        themeIndex = idx;
+        themeSaved = idx;
+        themeSave(idx);
+    };
+
+    // Commits the previewed theme: to the SD card always — it has to be
+    // there before the next boot's first frame, and offline play never talks
+    // to a server at all — and to the account when there is one to tell.
+    auto commitTheme = [&]()
+    {
+        themeSaved = themeIndex;
+        themeSave(themeIndex);
+        if (savedAuthCode[0])
+        {
+            char body[128];
+            snprintf(body, sizeof(body), "{\"authCode\":\"%s\",\"theme\":\"%s\"}",
+                     savedAuthCode, THEME_DEFS[themeIndex].id);
+            fireAndForget(NetOp::POST, "/api/3ds/cosmetics", body);
+        }
+    };
+
     // Snap the match clock to an authoritative server reading.
     auto timerSync = [&](int w, int b)
     {
@@ -287,6 +337,8 @@ int main()
         ctx.qrData         = qrData;
         ctx.qrReady        = qrReady;
         ctx.statusMsg      = statusMsg;
+        ctx.themeIndex     = themeIndex;
+        ctx.themeSaved     = themeSaved;
         ctx.privateCode    = privateCode;
         ctx.joinCode       = joinCode;
         ctx.game           = tutorialActive ? &tutorial : &game;
@@ -326,6 +378,19 @@ int main()
         gspWaitForVBlank();
     };
 
+    // The stored theme is read before anything is drawn, so the splash and
+    // every frame after it are already in the player's colours — waiting for
+    // the login round-trip would mean opening on Wooden and then flipping.
+    {
+        const int stored = themeLoad();
+        if (stored >= 0)
+        {
+            themeApply(stored);
+            themeIndex = stored;
+            themeSaved = stored;
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Show "connecting" splash while we make the initial network calls
     // ---------------------------------------------------------------------------
@@ -362,6 +427,7 @@ int main()
             jsonExtract(call.data(), "username", uname, sizeof(uname));
             jsonExtract(call.data(), "id", idValue, sizeof(idValue));
             jsonExtract(call.data(), "elo", elo, sizeof(elo));
+            adoptThemeFromLogin(call.data());
             snprintf(username,  sizeof(username),  "%s", uname);
             snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
             state = AppState::LOGGED_IN;
@@ -858,7 +924,7 @@ main_loop:
         }
         else if ((navDx != previousNavDx || navDy != previousNavDy) && currentFocusCount > 0)
         {
-            int xs[6], ys[6];
+            int xs[FOCUS_MAX], ys[FOCUS_MAX];
             int n = focusPoints(state, lobbyPage, xs, ys);
             if (n > 0)
             {
@@ -1174,6 +1240,8 @@ main_loop:
                         tutorialReset(tutorial, tutorialStep);
                         tutorialActive = true;
                     }
+                    else if (buttonHit(BTN_THEMES, touch.px, touch.py))
+                        lobbyPage = LobbyPage::THEMES;
                 }
                 else if (buttonHit(BTN_BACK, touch.px, touch.py))
                 {
@@ -1187,6 +1255,26 @@ main_loop:
                 {
                     if (buttonHit(BTN_CREATE_ROOM, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_CREATE;
                     else if (buttonHit(BTN_JOIN_ROOM, touch.px, touch.py)) lobbyPage = LobbyPage::PRIVATE_JOIN;
+                }
+                // Ahead of the generic BTN_CONTINUE handling below, which
+                // shares its geometry with the Apply button.
+                else if (lobbyPage == LobbyPage::THEMES)
+                {
+                    const bool prev = buttonHit(BTN_THEME_PREV, touch.px, touch.py);
+                    const bool next = buttonHit(BTN_THEME_NEXT, touch.px, touch.py);
+                    if (prev || next)
+                    {
+                        const int n = themeCount();
+                        themeIndex = (themeIndex + (next ? 1 : n - 1)) % n;
+                        themeApply(themeIndex);
+                        statusMsg[0] = 0;
+                    }
+                    else if (buttonHit(BTN_THEME_APPLY, touch.px, touch.py))
+                    {
+                        commitTheme();
+                        snprintf(statusMsg, sizeof(statusMsg), "%s applied",
+                                 THEME_DEFS[themeIndex].name);
+                    }
                 }
                 else if (lobbyPage == LobbyPage::QUEUE && buttonHit(BTN_CANCEL_QUEUE, touch.px, touch.py))
                 {
@@ -1351,6 +1439,7 @@ main_loop:
                     jsonExtract(call.data(), "username", guestName, sizeof(guestName));
                     jsonExtract(call.data(), "id", idValue, sizeof(idValue));
                     jsonExtract(call.data(), "elo", elo, sizeof(elo));
+                    adoptThemeFromLogin(call.data());
                     snprintf(username, sizeof(username), "%s", guestName);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", guestName, elo);
                     state = AppState::LOGGED_IN;
@@ -1400,6 +1489,7 @@ main_loop:
                     jsonExtract(call.data(), "authCode", ac, sizeof(ac));
                     jsonExtract(call.data(), "id", idValue, sizeof(idValue));
                     jsonExtract(call.data(), "elo", elo, sizeof(elo));
+                    adoptThemeFromLogin(call.data());
                     snprintf(username,  sizeof(username),  "%s", uname);
                     snprintf(statusMsg, sizeof(statusMsg), "%s  ELO %s", uname, elo);
                     if (ac[0]) { saveAuthCode(ac); snprintf(savedAuthCode, sizeof(savedAuthCode), "%s", ac); }
@@ -1453,6 +1543,7 @@ main_loop:
                     {
                         jsonExtract(userObj, "username", uname, sizeof(uname));
                         jsonExtract(userObj, "elo", elo, sizeof(elo));
+                        adoptThemeFromLogin(userObj);
                     }
                     jsonExtract(j->response.data, "id", idValue, sizeof(idValue));
 
@@ -1506,6 +1597,14 @@ main_loop:
         }
 
     render:
+        // Leaving the picker without applying drops the preview. Checked here
+        // rather than on each of the ways off the page (Back, B, the quit
+        // modal, a match starting) so none of them can forget to do it.
+        if (lobbyPage != LobbyPage::THEMES && themeIndex != themeSaved)
+        {
+            themeIndex = themeSaved;
+            themeApply(themeSaved);
+        }
         renderFrame(touch.px, touch.py, touchHeld);
     }
 

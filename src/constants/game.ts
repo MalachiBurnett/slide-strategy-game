@@ -181,3 +181,9 @@ export const THEMES: ThemeData[] = [
     }
   }
 ];
+
+// Every theme id the server will accept, derived from the table above rather
+// than written out again — a new theme should only ever have to be added in
+// one place. The 3DS client keeps its own copy of these ids (in
+// 3ds-client/source/theme.cpp) and ignores any it does not recognise.
+export const VALID_THEMES: Theme[] = THEMES.map(t => t.id);

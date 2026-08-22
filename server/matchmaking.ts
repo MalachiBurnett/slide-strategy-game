@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { db } from "./db";
 import { INITIAL_BOARD, getValidMoves, checkWin, calculateEloChange, generateBoard } from "./gameLogic";
 import { updateUnlockedSkins } from "./skins";
+import { VALID_THEMES } from "../src/constants/game";
 
 function toNotation(r: number, c: number): string {
   const letters = ['a', 'b', 'c', 'd', 'e', 'f'];
@@ -259,6 +260,21 @@ export function setupMatchmaking(io: Server, app?: express.Application) {
         db.run("DELETE FROM games WHERE id = ?", [game.id], () => {
           res.json({ success: true });
         });
+      });
+    }));
+
+    // The theme picker on the 3DS writes through here rather than through
+    // /api/cosmetics: that route authenticates with a session cookie, and the
+    // console only ever has an authCode. Themes only — the console does not
+    // draw the piece skins, so it has no business changing which one is set.
+    app.post("/api/3ds/cosmetics", (req, res) => authenticate3ds(req, res, (user) => {
+      const { theme } = req.body;
+      if (!theme || !VALID_THEMES.includes(theme)) {
+        return res.status(400).json({ error: "Invalid theme" });
+      }
+      db.run("UPDATE users SET theme = ? WHERE id = ?", [theme, user.id], (err) => {
+        if (err) return res.status(500).json({ error: "Update failed" });
+        res.json({ success: true });
       });
     }));
   }

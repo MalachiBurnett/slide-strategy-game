@@ -163,6 +163,46 @@ Color mix(Color a, Color b, float amount)
     };
 }
 
+// Keeps a *fixed* ink — the error red, the success green, a button's own
+// label colour — legible against whatever surface the current theme has put
+// behind it. On a dark face the ink is lifted towards white; on a light one
+// it is handed back untouched, so nothing about the light themes moves.
+// Without this, Sign out (dark red on the theme's card colour) is unreadable
+// the moment a theme makes that card dark, as Midnight and Connect 4 do.
+Color inkOn(Color surface, Color ink)
+{
+    const float luma = (0.299f * surface.r + 0.587f * surface.g + 0.114f * surface.b) / 255.0f;
+    return luma < 0.5f ? mix(ink, Color{255, 255, 255}, 0.55f) : ink;
+}
+
+// Resolved fresh on every lookup rather than cached, because the whole point
+// is that a theme swap takes effect on the next frame with nothing to
+// invalidate. See the Role comment in render.h.
+Color roleColor(Role r)
+{
+    switch (r)
+    {
+    case Role::Bg:         return C_BG;
+    case Role::BgLight:    return C_BG_LIGHT;
+    case Role::BgDark:     return C_BG_DARK;
+    case Role::Text:       return C_TEXT;
+    case Role::TextSoft:   return C_TEXT_SOFT;
+    case Role::Primary:    return C_PRIMARY;
+    case Role::PrimaryTxt: return C_PRIMARY_TXT;
+    case Role::PrimaryDk:  return C_PRIMARY_DK;
+    case Role::Accent:     return C_ACCENT;
+    case Role::AccentTxt:  return C_ACCENT_TXT;
+    case Role::AccentDk:   return C_ACCENT_DK;
+    case Role::FixedTxt:   return C_FIXED_TXT;
+    case Role::Success:    return C_SUCCESS;
+    case Role::Error:      return C_ERROR;
+    case Role::ErrorDk:    return C_ERROR_DK;
+    case Role::Purple:     return C_PURPLE;
+    case Role::PurpleDk:   return C_PURPLE_DK;
+    }
+    return C_TEXT;
+}
+
 void fillRoundRectAccented(uint8_t *fb, int w, int h,
                            int x0, int y0, int rw, int rh, int r,
                            Color cardColor, Color accentColor, int accentPx)

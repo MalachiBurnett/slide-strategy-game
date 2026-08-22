@@ -31,6 +31,11 @@ struct UiContext
     const uint8_t *qrData;
     bool        qrReady;
     const char *statusMsg;
+    // Theme picker: `themeIndex` is what the palette is currently showing
+    // (the picker previews live), `themeSaved` is what has actually been
+    // committed — the two differing is what makes Apply worth pressing.
+    int         themeIndex;
+    int         themeSaved;
     const char *privateCode;
     const char *joinCode;
     const GameUiState *game;

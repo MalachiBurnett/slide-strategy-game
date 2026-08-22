@@ -3,6 +3,7 @@
  * See screens.h for the contract and uikit.h for how these get animated.
  */
 #include "screens.h"
+#include "theme.h"
 #include "tutorial.h"
 
 #include <cstdio>
@@ -40,14 +41,16 @@ static const char PREVIEW_BOARD[6][6] = {
 };
 
 // A piece reads as a raised token: drop shadow, dark rim, then the face.
+// The faces are fixed rather than themed (see the C_PIECE_* note in
+// render.h) — only the shadow follows the board underneath it.
 static void drawPiece(uint8_t *fb, int w, int h, int cx, int cy, char piece, int radius)
 {
     if (radius < 2) radius = 2;
     fillCircle(fb, w, h, cx + 1, cy + 2, radius + 1, darken(C_BOARD_DARK, 0.4f));
-    fillCircle(fb, w, h, cx, cy, radius + 1, C_TEXT);
-    fillCircle(fb, w, h, cx, cy, radius - 1, piece == 'W' ? C_BG_LIGHT : C_TEXT);
+    fillCircle(fb, w, h, cx, cy, radius + 1, C_PIECE_RIM);
+    fillCircle(fb, w, h, cx, cy, radius - 1, piece == 'W' ? C_PIECE_W : C_PIECE_B);
     if (piece == 'W' && radius >= 6)
-        fillCircle(fb, w, h, cx - radius / 3, cy - radius / 3, radius / 4, C_BG_DARK);
+        fillCircle(fb, w, h, cx - radius / 3, cy - radius / 3, radius / 4, C_PIECE_GLINT);
 }
 
 static bool gameHasMove(const GameUiState &game, int r, int c)
@@ -179,8 +182,10 @@ static UiElem &addButton(UiScene &s, const Button &b, const UiContext &c,
 {
     const bool pressed = c.touchActive && buttonHit(b, c.touchX, c.touchY);
     const bool focused = c.focusVisible && focusSlot >= 0 && c.focusIndex == focusSlot;
+    const Color face = roleColor(b.bgColor);
     return uiButton(s, b.x, b.y, b.w, b.h, b.label,
-                    b.bgColor, b.textColor, b.borderColor, pressed, focused, glyph);
+                    face, inkOn(face, roleColor(b.textColor)), roleColor(b.borderColor),
+                    pressed, focused, glyph);
 }
 
 // The website's raised card: light face, subtle outline, coloured strip along
@@ -198,7 +203,7 @@ static void addPageHeader(UiScene &s, int x, int y, Glyph glyph, Color tint,
                           const char *title, const char *subtitle)
 {
     uiGroupBegin(s);
-    uiIcon(s, x, y, 30, glyph, tint, C_PRIMARY_TXT);
+    uiIcon(s, x, y, 30, glyph, tint, inkOn(tint, C_PRIMARY_TXT));
     uiText(s, x + 38, y + 2, title, 2, C_TEXT, EF_BOLD);
     if (subtitle && subtitle[0])
         uiText(s, x + 38, y + 22, subtitle, 1, C_TEXT_SOFT);
@@ -210,7 +215,7 @@ static void addTightHeader(UiScene &s, int x, int y, Glyph glyph, Color tint,
                            const char *title, const char *subtitle)
 {
     uiGroupBegin(s);
-    uiIcon(s, x, y, 20, glyph, tint, C_PRIMARY_TXT);
+    uiIcon(s, x, y, 20, glyph, tint, inkOn(tint, C_PRIMARY_TXT));
     uiText(s, x + 26, y, title, 1, C_PRIMARY, EF_BOLD);
     if (subtitle && subtitle[0])
         uiText(s, x + 26, y + 11, subtitle, 1, C_TEXT_SOFT);
@@ -311,7 +316,7 @@ static void topTitleBar(UiScene &s, const char *right)
     (void)bar;
     uiText(s, 10, 7, "SLIDE", 1, C_PRIMARY_TXT, EF_BOLD);
     if (right && right[0])
-        uiTextIn(s, TOP_W - 220, 7, 208, right, 1, C_ACCENT, EF_RIGHT);
+        uiTextIn(s, TOP_W - 220, 7, 208, right, 1, C_PRIMARY_SOFT, EF_RIGHT);
     uiGroupEnd(s);
 }
 
@@ -321,8 +326,8 @@ static void buildTopQuitConfirm(UiScene &s)
     uiGroupBegin(s);
     UiElem &card = addCard(s, 40, 60, TOP_W - 80, 116, C_ERROR);
     card.accent = 6;
-    uiIcon(s, 60, 82, 34, Glyph::Warn, C_ERROR, C_PRIMARY_TXT);
-    uiText(s, 106, 84, "QUIT SLIDE?", 2, C_ERROR, EF_BOLD);
+    uiIcon(s, 60, 82, 34, Glyph::Warn, C_ERROR, C_FIXED_TXT);
+    uiText(s, 106, 84, "QUIT SLIDE?", 2, inkOn(C_BG_LIGHT, C_ERROR), EF_BOLD);
     uiWrap(s, 106, 110, 216,
            "Any match in progress will be left unresolved and may count as a loss.",
            1, C_TEXT);
@@ -372,8 +377,8 @@ static void buildTopError(UiScene &s, const UiContext &c)
     uiGroupBegin(s);
     UiElem &card = addCard(s, 16, 44, TOP_W - 32, 122, C_ERROR);
     card.accent = 6;
-    uiIcon(s, 34, 62, 32, Glyph::Warn, C_ERROR, C_PRIMARY_TXT);
-    uiText(s, 78, 64, "SOMETHING WENT WRONG", 1, C_ERROR, EF_BOLD);
+    uiIcon(s, 34, 62, 32, Glyph::Warn, C_ERROR, C_FIXED_TXT);
+    uiText(s, 78, 64, "SOMETHING WENT WRONG", 1, inkOn(C_BG_LIGHT, C_ERROR), EF_BOLD);
     uiWrap(s, 78, 82, TOP_W - 128,
            (c.statusMsg && c.statusMsg[0]) ? c.statusMsg : "The server could not be reached.",
            1, C_TEXT);
@@ -493,7 +498,7 @@ static void buildTopLobby(UiScene &s, const UiContext &c)
     uiGroupEnd(s);
 
     uiPill(s, 236, 196, 152, 20,
-           local ? "NOT RATED" : uiStr(s, "ELO %s", elo), C_ACCENT, C_TEXT, EF_BOLD);
+           local ? "NOT RATED" : uiStr(s, "ELO %s", elo), C_ACCENT, C_ACCENT_TXT, EF_BOLD);
 
     addStatus(s, 12, 182, 210, c.statusMsg, C_PRIMARY, 5);
 }
@@ -514,8 +519,8 @@ static void addClockCard(UiScene &s, int x, int y, int w, int h,
     Color text  = C_TEXT_SOFT;
     Color time  = C_TEXT;
     Color strip = C_ACCENT;
-    if (low)        { face = C_ERROR;   text = C_PRIMARY_TXT; time = C_PRIMARY_TXT; strip = darken(C_ERROR, 0.35f); }
-    else if (active){ face = C_ACCENT;  text = C_PRIMARY_DK;  time = C_TEXT;        strip = C_ACCENT_DK; }
+    if (low)        { face = C_ERROR;   text = C_FIXED_TXT;   time = C_FIXED_TXT; strip = darken(C_ERROR, 0.35f); }
+    else if (active){ face = C_ACCENT;  text = C_ACCENT_TXT;  time = C_ACCENT_TXT;   strip = C_ACCENT_DK; }
 
     uiGroupBegin(s);
     UiElem &card = uiPanel(s, x, y, w, h, 10, face, strip, 4);
@@ -526,6 +531,55 @@ static void addClockCard(UiScene &s, int x, int y, int w, int h,
     uiTextIn(s, x, y + 20, w, uiStr(s, "%d:%02d", seconds / 60, seconds % 60), 3,
              time, EF_CENTER | EF_BOLD);
     uiGroupEnd(s);
+}
+
+// --- theme picker -----------------------------------------------------------
+// The page is its own preview: browsing has already repainted both screens in
+// the theme under the cursor, so all this has to add is the name, the colours
+// that a single page does not otherwise put on display, and whether the
+// choice is the committed one.
+static void buildTopThemes(UiScene &s, const UiContext &c)
+{
+    const int idx = (c.themeIndex < 0 || c.themeIndex >= themeCount()) ? 0 : c.themeIndex;
+    topTitleBar(s, "THEMES");
+
+    // The name runs the full width rather than sharing a row with the board
+    // preview: "Wooden (Classic)" at scale 2 is 256px on its own, so a right
+    // hand column beside it would cut the longest names in half.
+    uiGroupBegin(s);
+    uiIcon(s, 12, 32, 30, Glyph::Grid, C_PRIMARY, C_PRIMARY_TXT);
+    uiText(s, 50, 34, THEME_DEFS[idx].name, 2, C_TEXT, EF_BOLD);
+    uiText(s, 50, 56, uiStr(s, "THEME %d OF %d", idx + 1, themeCount()), 1, C_TEXT_SOFT);
+    uiGroupEnd(s);
+
+    uiText(s, 12, 80, "PALETTE", 1, C_PRIMARY, EF_BOLD);
+
+    static const char *swatchNames[4] = {"SURFACE", "PRIMARY", "ACCENT", "BOARD"};
+    const Color swatches[4] = {C_BG_DARK, C_PRIMARY, C_ACCENT, C_BOARD_DARK};
+    for (int i = 0; i < 4; ++i)
+    {
+        const int y = 96 + i * 24;
+        uiGroupBegin(s);
+        uiText(s, 12, y + 5, swatchNames[i], 1, C_TEXT_SOFT);
+        UiElem &chip = uiPill(s, 90, y, 126, 18, "", swatches[i], C_TEXT);
+        chip.flags |= EF_BORDER;
+        chip.edge   = C_ACCENT_DK;
+        uiGroupEnd(s);
+    }
+
+    // The same board the lobby shows, so a theme can be judged on the thing
+    // the player will actually spend the match looking at.
+    uiGroupBegin(s);
+    UiElem &frame = uiPanel(s, 250, 78, 138, 138, 12, C_PRIMARY, C_PRIMARY_DK, 6);
+    (void)frame;
+    UiElem &prev = uiRaw(s, ElemKind::Custom, 258, 86, 122, 122);
+    prev.data = CW_PREVIEW;
+    uiGroupEnd(s);
+
+    const bool committed = idx == c.themeSaved;
+    const Color pillBg = committed ? C_SUCCESS : C_BG_DARK;
+    uiPill(s, 12, 198, 204, 20, committed ? "IN USE" : "NOT APPLIED YET",
+           pillBg, committed ? C_FIXED_TXT : C_TEXT_SOFT, EF_BOLD);
 }
 
 static void buildTopGame(UiScene &s, const UiContext &c)
@@ -570,7 +624,7 @@ static void buildTopGame(UiScene &s, const UiContext &c)
     uiTextIn(s, TOP_W - 220, 7, 208,
              !game.isOnline    ? "LOCAL MATCH"
              : game.turn == game.player ? "YOUR MOVE" : "OPPONENT TO MOVE",
-             1, C_ACCENT, EF_RIGHT);
+             1, C_PRIMARY_SOFT, EF_RIGHT);
     uiGroupEnd(s);
 
     // Chess-clock row. Your own side is always on the left, matching the
@@ -596,7 +650,7 @@ static void buildTopGame(UiScene &s, const UiContext &c)
         turnCard.flags |= EF_BORDER;
         turnCard.fg     = C_PRIMARY;
         turnCard.data   = 3;
-        uiTextIn(s, 12, 37, TOP_W - 24, "NO TIME LIMIT", 1, C_PRIMARY_DK, EF_CENTER | EF_BOLD);
+        uiTextIn(s, 12, 37, TOP_W - 24, "NO TIME LIMIT", 1, C_ACCENT_TXT, EF_CENTER | EF_BOLD);
         uiTextIn(s, 12, 50, TOP_W - 24,
                  game.turn == 'W' ? "WHITE TO MOVE" : "BLACK TO MOVE", 2, C_TEXT,
                  EF_CENTER | EF_BOLD);
@@ -685,7 +739,7 @@ static void buildTopTutorial(UiScene &s, const UiContext &c)
     uiIcon(s, 12, 34, 30, Glyph::Person, C_PRIMARY, C_PRIMARY_TXT);
     uiText(s, 50, 36, "TUTORIAL BOT", 1, C_PRIMARY, EF_BOLD);
     uiPill(s, 50, 52, userTurn ? 92 : 96, 16, userTurn ? "YOUR TURN" : "BOT'S TURN",
-           userTurn ? C_SUCCESS : C_ACCENT, userTurn ? C_PRIMARY_TXT : C_PRIMARY_DK, EF_BOLD);
+           userTurn ? C_SUCCESS : C_ACCENT, userTurn ? C_FIXED_TXT : C_ACCENT_TXT, EF_BOLD);
     uiGroupEnd(s);
 
     uiGroupBegin(s);
@@ -741,6 +795,7 @@ void buildTopScene(UiScene &s, const UiContext &c)
         {
         case LobbyPage::PRIVATE_WAIT:    buildTopPrivateWait(s, c); break;
         case LobbyPage::QUEUE:           buildTopQueue(s, c); break;
+        case LobbyPage::THEMES:          buildTopThemes(s, c); break;
         default:                         buildTopLobby(s, c); break;
         }
         break;
@@ -755,8 +810,8 @@ static void buildBottomQuitConfirm(UiScene &s, const UiContext &c)
     uiGroupBegin(s);
     UiElem &card = addCard(s, 16, 18, BOT_W - 32, 96, C_ERROR);
     card.accent = 5;
-    uiIcon(s, 32, 34, 32, Glyph::Warn, C_ERROR, C_PRIMARY_TXT);
-    uiText(s, 76, 36, "ARE YOU SURE?", 1, C_ERROR, EF_BOLD);
+    uiIcon(s, 32, 34, 32, Glyph::Warn, C_ERROR, C_FIXED_TXT);
+    uiText(s, 76, 36, "ARE YOU SURE?", 1, inkOn(C_BG_LIGHT, C_ERROR), EF_BOLD);
     uiWrap(s, 76, 54, 212,
            "Quitting closes Slide and returns you to the home menu.", 1, C_TEXT);
     uiGroupEnd(s);
@@ -812,8 +867,9 @@ static void buildBottomHome(UiScene &s, const UiContext &c)
     addButton(s, BTN_PRIVATE_ROOM, c, 1, Glyph::Hash);
     addButton(s, BTN_LOCAL_PLAY,   c, 2, Glyph::Users);
     addButton(s, BTN_TUTORIAL,     c, 3, Glyph::Grid);
-    addButton(s, BTN_SIGNOUT,      c, 4, Glyph::Exit);
-    addButton(s, BTN_QUIT,         c, 5, Glyph::Cross);
+    addButton(s, BTN_THEMES,       c, 4, Glyph::Eye);
+    addButton(s, BTN_SIGNOUT,      c, 5, Glyph::Exit);
+    addButton(s, BTN_QUIT,         c, 6, Glyph::Cross);
     addStatus(s, 10, 170, BOT_W - 20, c.statusMsg, C_PRIMARY, 2);
 }
 
@@ -879,7 +935,7 @@ static void buildBottomLocal(UiScene &s, const UiContext &c)
     addTightHeader(s, 8, 6, Glyph::Users, C_PRIMARY, "LOCAL PLAY", "Two players, one console");
     addSettingRow(s, BTN_LOCAL_VARIANT, "VARIANT", variantLabel(c.variant),
                   c.focusVisible && c.focusIndex == 0, false);
-    addSettingRow(s, Button{8, 68, BOT_W - 16, 20, "", C_BG_LIGHT, C_TEXT, C_ACCENT},
+    addSettingRow(s, Button{8, 68, BOT_W - 16, 20, "", Role::BgLight, Role::Text, Role::Accent},
                   "TIME CONTROL", "NO LIMIT", false, true);
     uiWrap(s, 8, 96, BOT_W - 16,
            "Pass the console back and forth. Pick a variant, then start the match.",
@@ -887,6 +943,47 @@ static void buildBottomLocal(UiScene &s, const UiContext &c)
     addStatus(s, 8, 132, BOT_W - 16, c.statusMsg, C_PRIMARY, 4);
     addButton(s, BTN_START_LOCAL, c, 1, Glyph::Play);
     addButton(s, BTN_BACK,        c, 2, Glyph::Back);
+}
+
+static void buildBottomThemes(UiScene &s, const UiContext &c)
+{
+    const int idx = (c.themeIndex < 0 || c.themeIndex >= themeCount()) ? 0 : c.themeIndex;
+    const bool committed = idx == c.themeSaved;
+
+    addTightHeader(s, 8, 4, Glyph::Eye, C_PRIMARY, "THEMES",
+                   "Browse to preview, apply to keep");
+
+    addButton(s, BTN_THEME_PREV, c, 0, Glyph::None);
+    addButton(s, BTN_THEME_NEXT, c, 1, Glyph::None);
+
+    uiGroupBegin(s);
+    UiElem &plate = uiPanel(s, 62, 40, 196, 46, 10, C_BG_LIGHT, C_ACCENT, 4);
+    plate.flags |= EF_BORDER;
+    plate.fg     = C_ACCENT;
+    uiTextIn(s, 62, 51, 196, THEME_DEFS[idx].name, 1, C_TEXT, EF_CENTER | EF_BOLD);
+    uiTextIn(s, 62, 66, 196, uiStr(s, "%d / %d", idx + 1, themeCount()), 1,
+             C_TEXT_SOFT, EF_CENTER);
+    uiGroupEnd(s);
+
+    // A strip of the theme's own colours, drawn flush so the whole row reads
+    // as one sample rather than six unrelated chips.
+    const Color strip[6] = {C_BG, C_BG_DARK, C_PRIMARY, C_ACCENT,
+                            C_BOARD_LIGHT, C_BOARD_DARK};
+    uiGroupBegin(s);
+    for (int i = 0; i < 6; ++i)
+        uiPanel(s, 8 + i * 51, 96, 50, 22, i == 0 ? 6 : (i == 5 ? 6 : 0),
+                strip[i], strip[i], 0);
+    uiGroupEnd(s);
+
+    uiWrap(s, 8, 126, BOT_W - 16,
+           committed ? "You are using this theme. It follows your account to the website too."
+                     : "Both screens are already previewing it. Apply to keep this theme.",
+           1, C_TEXT_SOFT);
+    addStatus(s, 8, 148, BOT_W - 16, c.statusMsg, C_PRIMARY, 2);
+
+    addButton(s, BTN_THEME_APPLY, c, 2, Glyph::Check);
+    addButton(s, BTN_BACK,        c, 3, Glyph::Back);
+    addButton(s, BTN_QUIT,        c, 4, Glyph::Cross);
 }
 
 static void buildBottomQueue(UiScene &s, const UiContext &c)
@@ -949,7 +1046,7 @@ static void buildBottomGame(UiScene &s, const UiContext &c)
     UiElem &left = uiRaw(s, ElemKind::Custom, 8, 28, 24, 24);
     left.data = leftPiece == 'W' ? CW_CHIP_W : CW_CHIP_B;
     if (leftToMove && !game.gameOver)
-        uiPill(s, 4, 58, 32, 14, "GO", C_SUCCESS, C_PRIMARY_TXT, EF_BOLD);
+        uiPill(s, 4, 58, 32, 14, "GO", C_SUCCESS, C_FIXED_TXT, EF_BOLD);
     uiGroupEnd(s);
 
     uiGroupBegin(s);
@@ -957,7 +1054,7 @@ static void buildBottomGame(UiScene &s, const UiContext &c)
     UiElem &right = uiRaw(s, ElemKind::Custom, BOT_W - 32, 28, 24, 24);
     right.data = rightPiece == 'W' ? CW_CHIP_W : CW_CHIP_B;
     if (!leftToMove && !game.gameOver)
-        uiPill(s, BOT_W - 36, 58, 32, 14, "GO", C_SUCCESS, C_PRIMARY_TXT, EF_BOLD);
+        uiPill(s, BOT_W - 36, 58, 32, 14, "GO", C_SUCCESS, C_FIXED_TXT, EF_BOLD);
     uiGroupEnd(s);
 }
 
@@ -1013,6 +1110,7 @@ void buildBottomScene(UiScene &s, const UiContext &c)
         case LobbyPage::LOCAL_SETTINGS:  buildBottomLocal(s, c); break;
         case LobbyPage::QUEUE:           buildBottomQueue(s, c); break;
         case LobbyPage::PRIVATE_WAIT:    buildBottomPrivateWait(s, c); break;
+        case LobbyPage::THEMES:          buildBottomThemes(s, c); break;
         default:                         buildBottomSettings(s, c); break;
         }
         break;

@@ -23,35 +23,94 @@ static constexpr int BOT_W = 320;
 static constexpr int BOT_H = 240;
 
 // ---------------------------------------------------------------------------
-// Colour type and named palette  ("Wooden / Classic")
+// Colour type, runtime palette, and the fixed colours themes never touch
 // ---------------------------------------------------------------------------
 struct Color { uint8_t r, g, b; };
 
-static constexpr Color C_BG         = {244, 241, 234};
-static constexpr Color C_BG_LIGHT   = {255, 255, 255};
-static constexpr Color C_BG_DARK    = {227, 217, 198};
-static constexpr Color C_TEXT       = { 74,  55,  40};
-static constexpr Color C_PRIMARY    = {139,  69,  19};
-static constexpr Color C_PRIMARY_TXT= {255, 255, 255};
-static constexpr Color C_ACCENT     = {210, 180, 140};
+// The themed half of the palette. theme.cpp swaps this wholesale when the
+// player picks a theme, and every screen reads it through the C_* names
+// below — so a theme change recolours the whole client on the next frame
+// without a single widget having to know themes exist.
+struct Palette
+{
+    Color bg, bgLight, bgDark;
+    Color text, textSoft;
+    Color primary, primaryTxt, primaryDk, primarySoft;
+    Color accent, accentTxt, accentDk;
+    Color boardLight, boardDark, boardBorder;
+};
+
+extern Palette gPalette;   // starts out as the website's "Wooden (Classic)"
+
+#define C_BG           (gPalette.bg)
+#define C_BG_LIGHT     (gPalette.bgLight)
+#define C_BG_DARK      (gPalette.bgDark)
+#define C_TEXT         (gPalette.text)
+// The website's 60%-opacity body copy.
+#define C_TEXT_SOFT    (gPalette.textSoft)
+#define C_PRIMARY      (gPalette.primary)
+#define C_PRIMARY_TXT  (gPalette.primaryTxt)
+// The `border-b-8` shade under a raised primary card.
+#define C_PRIMARY_DK   (gPalette.primaryDk)
+// Muted label on top of a primary-coloured bar — a theme's accent is not
+// guaranteed to be readable there (Midnight's is not), so this is derived
+// from the pair that is: primaryTxt faded towards primary.
+#define C_PRIMARY_SOFT (gPalette.primarySoft)
+#define C_ACCENT       (gPalette.accent)
+// Label colour for anything sitting *on* an accent fill. Not the same as
+// C_TEXT: on a dark theme the body text is near-white and the accent is a
+// light grey, so reusing C_TEXT there would be invisible.
+#define C_ACCENT_TXT   (gPalette.accentTxt)
+#define C_ACCENT_DK    (gPalette.accentDk)
+#define C_BOARD_LIGHT  (gPalette.boardLight)
+#define C_BOARD_DARK   (gPalette.boardDark)
+#define C_BOARD_BORDER (gPalette.boardBorder)
+
+// Fixed colours. These stay put across every theme because they do on the
+// website too: its status greens/reds and the purple Tutorial card are plain
+// Tailwind classes rather than CSS variables.
 static constexpr Color C_SUCCESS    = { 34, 139,  34};
 static constexpr Color C_ERROR      = {180,  30,  30};
-
-// Website-derived extras: the `border-b-8` shade under a raised card, the
-// 60%-opacity body copy, and the purple used for the Tutorial card.
-static constexpr Color C_PRIMARY_DK = { 92,  45,  12};
-static constexpr Color C_ACCENT_DK  = {160, 132,  96};
-static constexpr Color C_TEXT_SOFT  = {143, 126, 110};
+static constexpr Color C_ERROR_DK   = {140,  20,  20};
 static constexpr Color C_PURPLE     = {139,  92, 246};
 static constexpr Color C_PURPLE_DK  = { 88,  55, 168};
 // "Look here" ring used by the tutorial to call out a square without
 // implying it is actually selected (that's C_SELECTED, in screens.cpp).
 static constexpr Color C_HINT       = {249, 115,  22};
+// Label colour for anything drawn on one of those. They are all dark, and a
+// theme's own primaryTxt only has to work on its primary — Midnight's is
+// near-black, which on the purple Tutorial card would be unreadable.
+static constexpr Color C_FIXED_TXT  = {255, 255, 255};
 
-// Board colours — match the website's default "Wooden (Classic)" theme.
-static constexpr Color C_BOARD_LIGHT  = {222, 203, 164};
-static constexpr Color C_BOARD_DARK   = {166, 124,  82};
-static constexpr Color C_BOARD_BORDER = { 93,  46,  10};
+// Piece tokens are the *skin*, not the theme — on the website they are
+// black/white SVGs that every theme draws unchanged — so they keep their own
+// colours. Deriving them from the palette would sink the black piece into
+// Midnight's near-white body text.
+static constexpr Color C_PIECE_W     = {250, 250, 248};
+static constexpr Color C_PIECE_B     = { 42,  38,  34};
+static constexpr Color C_PIECE_RIM   = { 24,  21,  18};
+static constexpr Color C_PIECE_GLINT = {214, 210, 202};
+
+// ---------------------------------------------------------------------------
+// Palette roles
+// ---------------------------------------------------------------------------
+// The shared button table in ui.h is built at compile time, but a theme swap
+// has to be able to recolour every control on screen — so a Button names the
+// palette *role* it wants and the actual Color is resolved when it is drawn.
+enum class Role : uint8_t
+{
+    Bg, BgLight, BgDark, Text, TextSoft,
+    Primary, PrimaryTxt, PrimaryDk,
+    Accent, AccentTxt, AccentDk,
+    FixedTxt,
+    Success, Error, ErrorDk, Purple, PurpleDk,
+};
+
+Color roleColor(Role r);
+
+// Lifts `ink` towards white when `surface` is dark, so a fixed colour stays
+// readable on a themed background. A no-op on light surfaces.
+Color inkOn(Color surface, Color ink);
 
 // ---------------------------------------------------------------------------
 // Pixel / rect / rounded-rect helpers

@@ -10,14 +10,15 @@ int focusCount(AppState state, LobbyPage page)
     if (state != AppState::LOGGED_IN) return 0;
     if (page == LobbyPage::QUEUE) return 1;
     if (page == LobbyPage::PRIVATE_WAIT) return 1;
-    if (page == LobbyPage::HOME) return 6;
+    if (page == LobbyPage::HOME) return 7;
+    if (page == LobbyPage::THEMES) return 5;
     if (page == LobbyPage::PRIVATE_CHOICE) return 4;
     if (page == LobbyPage::PRIVATE_JOIN) return 3;
     if (page == LobbyPage::LOCAL_SETTINGS) return 3;
     return 6;
 }
 
-int focusPoints(AppState state, LobbyPage page, int outX[6], int outY[6])
+int focusPoints(AppState state, LobbyPage page, int outX[FOCUS_MAX], int outY[FOCUS_MAX])
 {
     const int (*pts)[2] = nullptr;
     int n = 0;
@@ -37,8 +38,15 @@ int focusPoints(AppState state, LobbyPage page, int outX[6], int outY[6])
         if (page == LobbyPage::HOME)
         {
             static const int p[][2] = {{82, 97}, {238, 97}, {82, 145},
-                                       {238, 145}, {160, 200}, {160, 222}};
-            pts = p; n = 6;
+                                       {238, 145}, {82, 200}, {238, 200},
+                                       {160, 222}};
+            pts = p; n = 7;
+        }
+        else if (page == LobbyPage::THEMES)
+        {
+            static const int p[][2] = {{31, 63}, {289, 63}, {238, 185},
+                                       {82, 185}, {160, 222}};
+            pts = p; n = 5;
         }
         else if (page == LobbyPage::PRIVATE_CHOICE)
         {
@@ -92,10 +100,14 @@ namespace
         // QR_LOGIN / ERROR_STATE: vertical stack of 4 full-width buttons.
         static const FocusLinks QR[4] = {{0, 1, 0, 0}, {0, 2, 1, 1}, {1, 3, 2, 2}, {2, 3, 3, 3}};
         static const FocusLinks INIT_ONE[1] = {{0, 0, 0, 0}};
-        // HOME: 2x2 grid + sign-out / quit full-width rows.
-        static const FocusLinks HOME[6] = {
+        // HOME: 2x2 mode grid, a themes / sign-out pair, then quit.
+        static const FocusLinks HOME[7] = {
             {0, 2, 0, 1}, {1, 3, 0, 1}, {0, 4, 2, 3}, {1, 5, 2, 3},
-            {2, 5, 4, 5}, {3, 4, 4, 5}
+            {2, 6, 4, 5}, {3, 6, 4, 5}, {4, 6, 6, 6}
+        };
+        // THEMES: prev / next side by side, apply / back below, then quit.
+        static const FocusLinks PICKER[5] = {
+            {0, 3, 0, 1}, {1, 2, 0, 1}, {1, 4, 3, 2}, {0, 4, 3, 2}, {3, 4, 4, 4}
         };
         // PRIVATE_CHOICE: 2x2 grid + quit.
         static const FocusLinks PCHOICE[4] = {
@@ -122,7 +134,8 @@ namespace
         if (state != AppState::LOGGED_IN) return INIT_ONE[0];
         if (page == LobbyPage::QUEUE) return QUEUE_ONE[0];
         if (page == LobbyPage::PRIVATE_WAIT) return QUEUE_ONE[0];
-        if (page == LobbyPage::HOME) return HOME[focus < 0 ? 0 : (focus > 5 ? 5 : focus)];
+        if (page == LobbyPage::HOME) return HOME[focus < 0 ? 0 : (focus > 6 ? 6 : focus)];
+        if (page == LobbyPage::THEMES) return PICKER[focus < 0 ? 0 : (focus > 4 ? 4 : focus)];
         if (page == LobbyPage::PRIVATE_CHOICE) return PCHOICE[focus < 0 ? 0 : (focus > 3 ? 3 : focus)];
         if (page == LobbyPage::PRIVATE_JOIN) return PJOIN[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
         if (page == LobbyPage::LOCAL_SETTINGS) return LOCALSET[focus < 0 ? 0 : (focus > 2 ? 2 : focus)];
@@ -142,7 +155,7 @@ int focusMove(AppState state, LobbyPage page, int focus, int dx, int dy)
 
 bool focusPoint(AppState state, LobbyPage page, int focus, int &x, int &y)
 {
-    int xs[6], ys[6];
+    int xs[FOCUS_MAX], ys[FOCUS_MAX];
     int n = focusPoints(state, page, xs, ys);
     if (focus < 0 || focus >= n) return false;
     x = xs[focus];

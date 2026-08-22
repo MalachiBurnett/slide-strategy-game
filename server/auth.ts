@@ -8,6 +8,7 @@ import { Resend } from "resend";
 import { v4 as uuidv4 } from "uuid";
 import { validateUsername, validatePassword } from "./validation";
 import { OAuth2Client } from "google-auth-library";
+import { VALID_THEMES } from "../src/constants/game";
 
 dotenv.config();
 
@@ -632,8 +633,7 @@ router.post("/cosmetics", (req, res) => {
     }
     
     if (theme) {
-      const validThemes = ['dark', 'light', 'beach', 'wooden', 'connect4', 'wii', 'oscar', 'sonic'];
-      if (validThemes.includes(theme)) {
+      if (VALID_THEMES.includes(theme)) {
         updates.push("theme = ?");
         params.push(theme);
       } else {
