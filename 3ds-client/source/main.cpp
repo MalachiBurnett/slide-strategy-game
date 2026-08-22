@@ -131,7 +131,11 @@ int main()
     resetGame(game);
     char pollingGameId[64] = {};
     u64 lastPollingTick = 0;
-    constexpr u64 POLLING_INTERVAL_TICKS = CPU_TICKS_PER_MSEC * 500;
+    // Waiting on the opponent is the latency-critical case; during our own
+    // turn we are only watching for the game ending out from under us, so a
+    // much slower cadence is plenty.
+    constexpr u64 POLL_WAITING_TICKS  = CPU_TICKS_PER_MSEC * 500;
+    constexpr u64 POLL_OUR_TURN_TICKS = CPU_TICKS_PER_MSEC * 2500;
     bool sendPending = false;
     bool focusPressActive = false;
     int  focusPressX = 0;
@@ -510,13 +514,29 @@ main_loop:
         }
 
         // Async status poll. Runs on the worker thread while the frame keeps
-        // rendering. We only poll while waiting for the OPPONENT — when it is
-        // our turn there is nothing the server can tell us, and any forfeit /
-        // timeout is detected when we send the move.
+        // rendering.
+        //
+        // This used to stop entirely once it was our turn, on the reasoning
+        // that the server had nothing to tell us and a forfeit or timeout
+        // would surface when we sent our move. Neither half holds: a game can
+        // end on the server at any moment (opponent forfeit, disconnect, flag
+        // fall), and "we find out when the move is rejected" means sitting on
+        // a dead board until the player happens to try something.
+        //
+        // There is also a race that can strand us here. A winning move is not
+        // written atomically — the server writes the board and flips `turn`
+        // to us first, and only then does handleGameEnd mark the game
+        // finished. A poll landing in that window reports "matched" with turn
+        // already ours, and under the old rule that was the last poll we ever
+        // made. So keep polling through our own turn too, just more slowly
+        // since nothing is normally expected then.
+        const bool inOnlineGame = onlineGame && !game.gameOver;
+        const u64  pollInterval = (inOnlineGame && game.turn == game.player)
+                                      ? POLL_OUR_TURN_TICKS
+                                      : POLL_WAITING_TICKS;
         if (state == AppState::LOGGED_IN && !statusJob && !moveJob &&
-            (forceStatusPoll ||
-             (queueing || (onlineGame && !game.gameOver && game.turn != game.player))) &&
-            (forceStatusPoll || svcGetSystemTick() - lastPollingTick >= POLLING_INTERVAL_TICKS))
+            (forceStatusPoll || queueing || inOnlineGame) &&
+            (forceStatusPoll || svcGetSystemTick() - lastPollingTick >= pollInterval))
         {
             lastPollingTick = svcGetSystemTick();
             forceStatusPoll = false;
@@ -600,31 +620,56 @@ main_loop:
                     jsonExtract(j->response.data, "gameId", pollingGameId, sizeof(pollingGameId));
                     jsonExtract(j->response.data, "color", color, sizeof(color));
                     jsonExtract(j->response.data, "winner", winner, sizeof(winner));
-                    if (parseBoard(j->response.data, game.board))
-                    {
-                        game.player = color[0] == 'B' ? 'B' : 'W';
-                        game.selectedRow = game.selectedCol = -1;
-                        game.targetRow = game.targetCol = -1;
-                        game.pieceSelected = false;
-                        game.confirmMove = false;
-                        game.gameOver = true;
-                        game.winner = winner[0] ? winner[0] : 0;
-                        game.isOnline = false;
-                        game.statusMsg = "Match complete";
-                        queueing = false;
-                        onlineGame = false;
-                        gameActive = true;
-                        lobbyPage = LobbyPage::HOME;
-                    }
+                    // Take the final board if it parses, but never make ending
+                    // the match conditional on it. This whole block used to sit
+                    // inside the parseBoard check, so any hiccup reading the
+                    // board meant the server's "this game is over" was thrown
+                    // away silently and the console carried on showing a live
+                    // board. Keeping the last known position is a far better
+                    // failure mode than ignoring the result.
+                    parseBoard(j->response.data, game.board);
+                    game.player = color[0] == 'B' ? 'B' : 'W';
+                    game.selectedRow = game.selectedCol = -1;
+                    game.targetRow = game.targetCol = -1;
+                    game.pieceSelected = false;
+                    game.confirmMove = false;
+                    game.gameOver = true;
+                    game.winner = winner[0] ? winner[0] : 0;
+                    game.isOnline = false;
+                    game.statusMsg = "Match complete";
+                    queueing = false;
+                    onlineGame = false;
+                    gameActive = true;
+                    lobbyPage = LobbyPage::HOME;
                 }
                 else if (strcmp(pollStatus, "waiting") == 0 && queueing)
                 {
                     // Private room still open — keep polling for the joiner.
                 }
-                else if (strcmp(pollStatus, "idle") == 0 && onlineGame)
+                else if (gameActive && onlineGame &&
+                         (strcmp(pollStatus, "idle") == 0 ||
+                          strcmp(pollStatus, "waiting") == 0))
                 {
-                    game.statusMsg = "Game ended or opponent disconnected";
-                    onlineGame = false;
+                    // We think we are in a game and the server does not agree:
+                    // either it has no record of one ("idle"), or the only
+                    // thing it can find for us is an old private room still
+                    // sitting open, which shadows the finished-game lookup.
+                    // Either way the match is over.
+                    //
+                    // This used to just set a status line and stop polling,
+                    // leaving a board on screen that looked live but could
+                    // never take another move — the same "nothing happens"
+                    // the lost finished-poll produced.
+                    game.gameOver      = true;
+                    game.winner        = '-';   // ended, but with no result to report
+                    game.isOnline      = false;
+                    game.pieceSelected = false;
+                    game.confirmMove   = false;
+                    onlineGame         = false;
+                    queueing           = false;
+                    snprintf(statusMsg, sizeof(statusMsg),
+                             "The match ended - your opponent may have disconnected");
+                    game.statusMsg = statusMsg;
                 }
             }
             else if (!stale && j->httpCode != 409)

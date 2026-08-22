@@ -510,8 +510,11 @@ static void buildTopGame(UiScene &s, const UiContext &c)
     {
         const char *title = "DRAW";
         Color tint = C_TEXT;
-        if (game.winner == game.player)                    { title = "YOU WIN!"; tint = C_SUCCESS; }
-        else if (game.winner == 'W' || game.winner == 'B') { title = "YOU LOSE"; tint = C_ERROR; }
+        if (game.winner == game.player)                    { title = "YOU WIN!";    tint = C_SUCCESS; }
+        else if (game.winner == 'W' || game.winner == 'B') { title = "YOU LOSE";    tint = C_ERROR; }
+        // '-' means the match stopped without the server reporting a result
+        // (opponent vanished, game record gone) — not the same as a draw.
+        else if (game.winner == '-')                       { title = "MATCH ENDED"; tint = C_TEXT_SOFT; }
 
         uiGroupBegin(s);
         UiElem &card = addCard(s, 40, 62, TOP_W - 80, 124, tint);
