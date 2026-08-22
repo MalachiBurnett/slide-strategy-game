@@ -89,15 +89,32 @@ export function setupMatchmaking(io: Server, app?: express.Application) {
         [user.id, user.id], (err, game: any) => {
           if (err) return res.status(500).json({ error: "Failed to read game status" });
           if (!game) {
-            db.get("SELECT * FROM games WHERE status = 'waiting' AND is_private = 1 AND player_w = ? LIMIT 1",
+            // An open private room used to be reported before we even looked
+            // for a finished game, which meant a room the player had left
+            // open shadowed the finished-game lookup permanently: every
+            // status poll answered "waiting", so the 3DS never learned that
+            // its match had ended and just sat there showing a live board.
+            // (Its own wins were unaffected, because those come back on the
+            // /api/3ds/move response and never consult this endpoint - which
+            // is exactly why only the opponent winning looked broken.)
+            //
+            // Fetch both and let the more recent one win. A room carries the
+            // last_move_time it was created with, so a room made after the
+            // last game still reports "waiting" and the private-room flow is
+            // unchanged.
+            db.get("SELECT * FROM games WHERE status = 'waiting' AND is_private = 1 AND player_w = ? ORDER BY last_move_time DESC LIMIT 1",
               [user.id], (waitErr, waiting: any) => {
-                if (waiting) return res.json({ status: "waiting", gameId: waiting.id, code: waiting.code });
                 db.get("SELECT * FROM games WHERE status = 'finished' AND (player_w = ? OR player_b = ?) ORDER BY last_move_time DESC LIMIT 1",
                   [user.id, user.id], (endErr, finished: any) => {
-                    if (endErr || !finished) return res.json({ status: "idle" });
-                    const endColor = Number(finished.player_w) === Number(user.id) ? "W" : "B";
-                    res.json({ status: "finished", gameId: finished.id, color: endColor,
-                      winner: finished.winner, board: JSON.parse(finished.board) });
+                    const roomTime = waiting ? Number(waiting.last_move_time) || 0 : -1;
+                    const endTime = (!endErr && finished) ? Number(finished.last_move_time) || 0 : -1;
+                    if (!endErr && finished && endTime >= roomTime) {
+                      const endColor = Number(finished.player_w) === Number(user.id) ? "W" : "B";
+                      return res.json({ status: "finished", gameId: finished.id, color: endColor,
+                        winner: finished.winner, board: JSON.parse(finished.board) });
+                    }
+                    if (waiting) return res.json({ status: "waiting", gameId: waiting.id, code: waiting.code });
+                    return res.json({ status: "idle" });
                   });
               });
             return;
